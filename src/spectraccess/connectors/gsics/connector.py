@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import re
 import tempfile
+import warnings
 from dataclasses import dataclass
 from io import BytesIO, StringIO
 from pathlib import Path
@@ -106,16 +107,31 @@ class GSICSConnector(Connector):
                 return not (tokens & _needle_tokens) and ref.href.lower().endswith("products.xml")
 
         targets: list[ThreddsDataset] = []
+        skipped = [c.agency for c in self.catalogs if c.url is None]
+        if skipped:
+            warnings.warn(
+                f"GSICS catalogs skipped (no verified URL configured): {', '.join(skipped)}",
+                stacklevel=2,
+            )
         for catalog in self.catalogs:
             if catalog.url is None:
                 continue
-            found = walk_catalog(
-                catalog.url,
-                ref_filter=ref_filter,
-                source_agency=catalog.agency,
-                cache_dir=self.cache_dir,
-                **walk_kwargs,
-            )
+            try:
+                found = walk_catalog(
+                    catalog.url,
+                    ref_filter=ref_filter,
+                    source_agency=catalog.agency,
+                    cache_dir=self.cache_dir,
+                    **walk_kwargs,
+                )
+            except Exception as exc:  # noqa: BLE001 -- isolate per-catalog outages
+                # One agency's outage must not sink results from the others
+                # (e.g. a CMA outage should not hide live EUMETSAT data).
+                warnings.warn(
+                    f"GSICS catalog {catalog.agency!r} discovery failed and was skipped: {exc}",
+                    stacklevel=2,
+                )
+                continue
             if contains:
                 found = [d for d in found if needle_tokens <= _tokenize(d.name.lower())]
             targets.extend(found)
@@ -202,6 +218,12 @@ def _dataset_to_frame(dataset, *, source_agency: str | None = None) -> pd.DataFr
     reference_sensor = attrs.get("reference_instrument")
     agency = attrs.get("institution") or source_agency
 
+    if "channel_name" not in dataset.variables:
+        raise ValueError(
+            "GSICS netCDF payload has no 'channel_name' variable -- not a "
+            "recognised GPPA correction product (variables present: "
+            f"{sorted(dataset.variables)})"
+        )
     channel_names = [_decode_channel_name(v) for v in dataset["channel_name"].values]
     n_chan = len(channel_names)
 

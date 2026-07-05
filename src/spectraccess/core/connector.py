@@ -28,11 +28,17 @@ class Connector(ABC):
     def parse(self, raw: bytes | str) -> Any:
         """Parse raw content into a tidy table or dataset."""
 
-    def run(self, **kwargs: Any) -> Any:
-        """Discover the first target, fetch it, and parse it."""
-        targets = self.discover(**kwargs)
+    def run(self, *, fetch_kwargs: dict[str, Any] | None = None, **discover_kwargs: Any) -> Any:
+        """Discover the first target, fetch it, and parse it.
+
+        Keyword arguments go to ``discover()`` only -- discovery filters like
+        ``contains``/``max_catalogs`` are not valid fetch options. Pass
+        fetch-stage options (``timeout``, ``use_cache``, ...) via
+        ``fetch_kwargs``.
+        """
+        targets = self.discover(**discover_kwargs)
         if not targets:
             raise ValueError("discover() returned no targets")
-        raw = self.fetch(targets[0], **kwargs)
+        raw = self.fetch(targets[0], **(fetch_kwargs or {}))
         return self.parse(raw)
 

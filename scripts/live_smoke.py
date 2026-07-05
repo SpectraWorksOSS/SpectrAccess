@@ -75,6 +75,14 @@ def smoke_gsics() -> None:
 
 def smoke_viirs() -> None:
     catalog_url = os.environ.get("SPECTRACCESS_VIIRS_CATALOG_URL")
+    if not catalog_url:
+        # The VIIRS connector is a documented stub until the NOAA STAR
+        # THREDDS backend is reachable again (down as of 2026-07-05) and a
+        # verified catalog URL is configured. A known-not-live connector must
+        # not raise here: on the weekly schedule that would file a recurring
+        # false connector-broken issue every run. Skip cleanly instead.
+        print("VIIRS smoke SKIPPED: SPECTRACCESS_VIIRS_CATALOG_URL not configured (connector is a documented stub)")
+        return
     targets = VIIRSCalibrationConnector(VIIRSCatalog("NOAA STAR VIIRS F-factors", catalog_url)).discover(
         use_cache=False,
         timeout=20,

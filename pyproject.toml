@@ -32,6 +32,11 @@ dependencies = [
   "scipy>=1.10",
 ]
 
+[project.urls]
+Homepage = "https://github.com/SpectraWorksOSS/SpectrAccess"
+Repository = "https://github.com/SpectraWorksOSS/SpectrAccess"
+Issues = "https://github.com/SpectraWorksOSS/SpectrAccess/issues"
+
 [project.optional-dependencies]
 # Reserved for a future opt-in RefCal uncertainty-provider integration.
 refcal = []

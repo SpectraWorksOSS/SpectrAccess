@@ -51,8 +51,14 @@ def fetch_url(
             response.raise_for_status()
             content = response.content
             if use_cache:
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_bytes(content)
+                try:
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_bytes(content)
+                except OSError:
+                    # Cache is an optimization, never a requirement: a
+                    # read-only cwd / container layer must not fail a fetch
+                    # that already succeeded over HTTP.
+                    pass
             return content
         except requests.RequestException as exc:
             last_error = exc

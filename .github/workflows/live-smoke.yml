@@ -45,6 +45,8 @@ jobs:
         run: |
           title="connector-broken: ${CONNECTOR}"
           body="Weekly live smoke failed for ${CONNECTOR} in ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}."
+          # Fresh repos have no such label; --force makes this idempotent.
+          gh label create connector-broken --description "A connector's live portal smoke test is failing" --color B60205 --force
           existing="$(gh issue list --state open --label connector-broken --search "$title in:title" --json number --jq '.[0].number')"
           if [ -n "$existing" ]; then
             gh issue comment "$existing" --body "$body"
