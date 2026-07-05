@@ -1,0 +1,4 @@
+date,site,wavelength,reflectance,reflectance_uncertainty
+2026-01-01,TEST,443,0.123,0.005
+2026-01-01,TEST,865,0.321,0.007
+

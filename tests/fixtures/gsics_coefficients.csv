@@ -1,0 +1,4 @@
+valid_time,satellite_pair,channel,coefficient,agency
+2026-01-01T00:00:00Z,Metop-A/NOAA-20,IR1,1.002,EUMETSAT
+2026-01-02T00:00:00Z,Himawari-8/GOES-16,VIS006,0.998,NOAA STAR
+

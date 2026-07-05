@@ -1,0 +1,4 @@
+date,satellite,instrument,channel,f_factor
+2026-01-01,NOAA-20,VIIRS,M1,0.991
+2026-01-02,NOAA-21,VIIRS,M2,1.004
+

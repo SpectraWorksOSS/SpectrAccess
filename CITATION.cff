@@ -1,0 +1,10 @@
+cff-version: 1.2.0
+message: "If you use spectrAccess, please cite it as below."
+title: "spectrAccess"
+authors:
+  - name: "SpectraWorks B.V."
+version: "0.1.0"
+date-released: "2026-07-05"
+license: "Apache-2.0"
+repository-code: "https://github.com/SpectraWorks/spectraccess"
+

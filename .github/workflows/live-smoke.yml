@@ -1,0 +1,49 @@
+name: Live connector smoke tests
+
+on:
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        connector: [gsics, modis_viirs_cal]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: python -m pip install -e ".[test]"
+      - name: Run live smoke
+        id: smoke
+        continue-on-error: true
+        env:
+          SPECTRACCESS_GSICS_EUMETSAT_CATALOG_URL: ${{ vars.SPECTRACCESS_GSICS_EUMETSAT_CATALOG_URL }}
+          SPECTRACCESS_GSICS_NOAA_STAR_CATALOG_URL: ${{ vars.SPECTRACCESS_GSICS_NOAA_STAR_CATALOG_URL }}
+          SPECTRACCESS_GSICS_CMA_CATALOG_URL: ${{ vars.SPECTRACCESS_GSICS_CMA_CATALOG_URL }}
+          SPECTRACCESS_VIIRS_CATALOG_URL: ${{ vars.SPECTRACCESS_VIIRS_CATALOG_URL }}
+        run: python scripts/live_smoke.py "${{ matrix.connector }}"
+      - name: Open or update connector-broken issue
+        if: steps.smoke.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CONNECTOR: ${{ matrix.connector }}
+        run: |
+          title="connector-broken: ${CONNECTOR}"
+          body="Weekly live smoke failed for ${CONNECTOR} in ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}."
+          existing="$(gh issue list --state open --label connector-broken --search "$title in:title" --json number --jq '.[0].number')"
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "$body"
+          else
+            gh issue create --title "$title" --label connector-broken --body "$body"
+          fi
+
