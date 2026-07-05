@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
 from spectraccess.connectors.gsics import GSICSConnector
+from spectraccess.connectors.gsics.connector import GSICSCatalog
 from spectraccess.connectors.modis_viirs_cal import MODISNotImplemented, VIIRSCalibrationConnector
 from spectraccess.connectors.radcalnet import RadCalNetConnector
 
@@ -24,9 +26,28 @@ def test_gsics_parse_fixture():
     assert parsed.loc[0, "source_agency"] == "EUMETSAT"
 
 
+def test_gsics_parse_netcdf_fixture():
+    fixture = FIXTURES / "gsics_msg4_seviri_metopb_iasi_nrtc_20260704.nc"
+    parsed = GSICSConnector().parse(fixture)
+
+    assert len(parsed) == 8
+    assert (parsed["sensor"] == "MSG4 SEVIRI").all()
+    assert (parsed["reference_sensor"] == "MetOpB IASI").all()
+
+    assert pd.api.types.is_numeric_dtype(parsed["slope"])
+    assert pd.api.types.is_numeric_dtype(parsed["offset"])
+    assert parsed["slope"].notna().all()
+    assert parsed["offset"].notna().all()
+
+
 def test_gsics_discover_is_stub_without_verified_catalogs():
+    catalogs = [
+        GSICSCatalog("EUMETSAT", None),
+        GSICSCatalog("NOAA STAR", None),
+        GSICSCatalog("CMA", None),
+    ]
     with pytest.raises(NotImplementedError, match="STOPPED-AT-STUB"):
-        GSICSConnector().discover()
+        GSICSConnector(catalogs=catalogs).discover()
 
 
 def test_viirs_parse_fixture():

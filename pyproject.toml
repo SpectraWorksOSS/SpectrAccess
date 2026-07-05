@@ -26,6 +26,10 @@ dependencies = [
   "requests>=2.31",
   "pandas>=2.0",
   "xarray>=2023.1",
+  # netCDF-3-classic backend for xarray: GSICS operational GPPA products are
+  # CDF classic (not HDF5-based netCDF4), and scipy is the lightest maintained
+  # engine that reads that format without pulling in the netCDF4 C library.
+  "scipy>=1.10",
 ]
 
 [project.optional-dependencies]

@@ -26,6 +26,11 @@ jobs:
       - name: Run live smoke
         id: smoke
         continue-on-error: true
+        # GSICS catalog vars are optional overrides: the connector ships live
+        # defaults for EUMETSAT + CMA, so these only need to be set to point
+        # at a different catalog URL (e.g. once NOAA STAR is reachable again).
+        # VIIRS has no live default yet, so its var remains required for that
+        # smoke to do anything.
         env:
           SPECTRACCESS_GSICS_EUMETSAT_CATALOG_URL: ${{ vars.SPECTRACCESS_GSICS_EUMETSAT_CATALOG_URL }}
           SPECTRACCESS_GSICS_NOAA_STAR_CATALOG_URL: ${{ vars.SPECTRACCESS_GSICS_NOAA_STAR_CATALOG_URL }}

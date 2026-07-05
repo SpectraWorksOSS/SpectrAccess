@@ -31,9 +31,11 @@ print(table.head())
 
 | Connector | Status | Auth requirement |
 | --- | --- | --- |
-| GSICS GPPA | Available shape; live default catalog URLs pending verification | None for public THREDDS catalogs |
+| GSICS GPPA | Available (EUMETSAT live, verified end-to-end; CMA catalog live but content-empty as of 2026-07-05; NOAA STAR pending, host unreachable 2026-07-05) | None for public THREDDS catalogs |
 | MODIS/VIIRS calibration LUT | VIIRS connector shape available; NOAA STAR F-factor THREDDS URL pending verification; MODIS planned | None for public VIIRS THREDDS; MODIS source design pending |
 | RadCalNet | Stubbed | Authenticated, manually approved account |
+
+NOAA/NESDIS GSICS products are also mirrored on the EUMETSAT collaboration server's master THREDDS catalog (`nesdisProducts.xml`), so some NESDIS product families may already be reachable via the EUMETSAT connector default even while the canonical NOAA STAR host is down.
 
 Maintainer: SpectraWorks B.V. Built by SpectraWorks, makers of RefCal.
 
