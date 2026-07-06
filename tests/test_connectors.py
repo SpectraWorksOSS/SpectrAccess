@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
@@ -8,10 +9,15 @@ import pytest
 from spectraccess.connectors.gsics import GSICSConnector
 from spectraccess.connectors.gsics.connector import GSICSCatalog, to_canonical
 from spectraccess.connectors.modis_viirs_cal import MODISNotImplemented, VIIRSCalibrationConnector
-from spectraccess.connectors.radcalnet import RadCalNetConnector
+from spectraccess.connectors.radcalnet import RadCalNetConnector, RadCalNetTarget
+from spectraccess.connectors.radcalnet.connector import (
+    DEFAULT_BASE_URL,
+    to_canonical as radcalnet_to_canonical,
+)
 
 
 FIXTURES = Path(__file__).parent / "fixtures"
+RADCALNET_FIXTURE = FIXTURES / "radcalnet" / "GSCN01_2025_334_v04.05.output"
 
 
 def test_gsics_parse_fixture():
@@ -142,16 +148,269 @@ def test_modis_is_documented_stub():
         MODISNotImplemented().discover()
 
 
-def test_radcalnet_parse_fixture(monkeypatch):
+def _radcalnet_connector(monkeypatch) -> RadCalNetConnector:
     monkeypatch.setenv("RADCALNET_USERNAME", "user")
     monkeypatch.setenv("RADCALNET_PASSWORD", "secret")
-    parsed = RadCalNetConnector().parse(FIXTURES / "radcalnet_daily.csv")
-    assert {"timestamp", "site", "wavelength_nm", "reflectance", "uncertainty"} <= set(parsed.columns)
+    return RadCalNetConnector()
 
 
-def test_radcalnet_live_fetch_is_stub(monkeypatch):
-    monkeypatch.setenv("RADCALNET_USERNAME", "user")
-    monkeypatch.setenv("RADCALNET_PASSWORD", "secret")
-    with pytest.raises(NotImplementedError, match="STOPPED-AT-STUB"):
-        RadCalNetConnector().fetch("daily")
+def test_radcalnet_requires_credentials(monkeypatch):
+    monkeypatch.delenv("RADCALNET_USERNAME", raising=False)
+    monkeypatch.delenv("RADCALNET_PASSWORD", raising=False)
+    with pytest.raises(ValueError, match="RADCALNET_USERNAME"):
+        RadCalNetConnector()
+
+
+def test_radcalnet_sites_via_requests_mock(monkeypatch, requests_mock):
+    connector = _radcalnet_connector(monkeypatch)
+    requests_mock.get(
+        DEFAULT_BASE_URL,
+        json=[{"name": "GSCN"}, {"name": "BSCN"}, {"name": "Australia"}],
+    )
+    sites = connector.sites()
+    assert sites == ["GSCN", "BSCN", "Australia"]
+    # Basic auth must be sent on every request.
+    assert requests_mock.last_request.headers["Authorization"].startswith("Basic ")
+
+
+def test_radcalnet_discover_filters_kind_and_date_window(monkeypatch, requests_mock):
+    connector = _radcalnet_connector(monkeypatch)
+    requests_mock.get(
+        f"{DEFAULT_BASE_URL}GSCN/data/",
+        json=[
+            {"name": "GSCN01_2025_330_v04.05.output"},
+            {"name": "GSCN01_2025_334_v04.05.output"},
+            {"name": "GSCN01_2025_334_v04.05.input"},
+            {"name": "GSCN01_2025_340_v04.05.output"},
+            {"name": "GSCN_archive.nc"},
+        ],
+    )
+
+    targets = connector.discover(site="GSCN", start=(2025, 334), end=(2025, 334))
+    assert [t.filename for t in targets] == ["GSCN01_2025_334_v04.05.output"]
+    assert targets[0].kind == "output"
+    assert targets[0].year == 2025
+    assert targets[0].doy == 334
+    assert targets[0].version == "04.05"
+
+    all_outputs = connector.discover(site="GSCN")
+    assert [t.filename for t in all_outputs] == [
+        "GSCN01_2025_330_v04.05.output",
+        "GSCN01_2025_334_v04.05.output",
+        "GSCN01_2025_340_v04.05.output",
+    ]
+
+    unfiltered = connector.discover(site="GSCN", kind=None)
+    assert "GSCN_archive.nc" in [t.filename for t in unfiltered]
+    archive_target = next(t for t in unfiltered if t.filename == "GSCN_archive.nc")
+    assert archive_target.kind == "archive"
+    assert archive_target.year is None
+
+
+def test_radcalnet_discover_nc_lists_datanc_directory(monkeypatch, requests_mock):
+    connector = _radcalnet_connector(monkeypatch)
+    requests_mock.get(
+        f"{DEFAULT_BASE_URL}GSCN/datanc/",
+        json=[{"name": "GSCN_archive.nc"}],
+    )
+    targets = connector.discover(site="GSCN", fmt="nc", kind=None)
+    assert len(targets) == 1
+    assert targets[0].fmt == "nc"
+    assert targets[0].url == f"{DEFAULT_BASE_URL}GSCN/datanc/GSCN_archive.nc"
+
+
+def test_radcalnet_fetch_basic_auth(monkeypatch, requests_mock):
+    connector = _radcalnet_connector(monkeypatch)
+    target = RadCalNetTarget(
+        site="GSCN",
+        filename="GSCN01_2025_334_v04.05.output",
+        url=f"{DEFAULT_BASE_URL}GSCN/data/GSCN01_2025_334_v04.05.output",
+        fmt="ascii",
+    )
+    requests_mock.get(target.url, content=b"Site:\tGSCN01\n")
+    raw = connector.fetch(target)
+    assert raw == b"Site:\tGSCN01\n"
+    assert requests_mock.last_request.headers["Authorization"].startswith("Basic ")
+
+
+def test_radcalnet_fetch_401_raises_credentials_error(monkeypatch, requests_mock):
+    connector = _radcalnet_connector(monkeypatch)
+    target = RadCalNetTarget(site="GSCN", filename="x.output", url=f"{DEFAULT_BASE_URL}GSCN/data/x.output", fmt="ascii")
+    requests_mock.get(target.url, status_code=401)
+    with pytest.raises(ValueError, match="RADCALNET_USERNAME"):
+        connector.fetch(target)
+
+
+def test_radcalnet_parse_fixture_row_counts_and_columns(monkeypatch):
+    connector = _radcalnet_connector(monkeypatch)
+    parsed = connector.parse(RADCALNET_FIXTURE)
+
+    expected_columns = {
+        "timestamp",
+        "site",
+        "lat",
+        "lon",
+        "alt_m",
+        "wavelength_nm",
+        "toa_reflectance",
+        "value_is_climatological",
+        "toa_reflectance_unc",
+        "toa_reflectance_unc_status",
+        "source_file",
+        "source_version",
+        "sza",
+        "saa",
+        "aod",
+        "angstrom",
+        "water_vapour_g_cm2",
+        "ozone_du",
+        "pressure_hpa",
+        "temperature_k",
+    }
+    assert expected_columns <= set(parsed.columns)
+
+    # Fixture: 8 wavelengths x 13 times, but column 1 (01:00 UTC) is 9998
+    # (fill) for every wavelength, and wavelength 1010nm is all-fill across
+    # every time -- both must be skipped entirely (no value, no row).
+    assert (parsed["wavelength_nm"] == 1010.0).sum() == 0
+    n_wavelengths_kept = 7  # 400, 410, 500, 600, 700, 800, 1000
+    n_times_kept = 12  # 13 time columns minus the fill (01:00) column
+    assert len(parsed) == n_wavelengths_kept * n_times_kept
+    assert parsed["site"].eq("GSCN01").all()
+    assert parsed["source_file"].eq("GSCN01_2025_334_v04.05.output").all()
+    assert parsed["source_version"].eq("04.05").all()
+    assert parsed["lat"].eq(36.3977).all()
+    assert parsed["lon"].eq(94.3286).all()
+    assert parsed["alt_m"].eq(2824.0).all()
+
+
+def test_radcalnet_parse_fixture_timestamp_matches_ported_helper(monkeypatch):
+    connector = _radcalnet_connector(monkeypatch)
+    parsed = connector.parse(RADCALNET_FIXTURE)
+
+    # Year 2025 DOY 334 01:30 UTC -> ported year/doy/UTC construction.
+    expected = datetime(2025, 1, 1, tzinfo=timezone.utc) + pd.Timedelta(days=333, hours=1, minutes=30)
+    row = parsed[(parsed["wavelength_nm"] == 400.0)].sort_values("timestamp").iloc[0]
+    assert row["timestamp"] == pd.Timestamp(expected)
+
+
+def test_radcalnet_parse_fixture_uncertainty_status_semantics(monkeypatch):
+    connector = _radcalnet_connector(monkeypatch)
+    parsed = connector.parse(RADCALNET_FIXTURE)
+
+    wl400 = parsed[parsed["wavelength_nm"] == 400.0].sort_values("timestamp").reset_index(drop=True)
+    # Column order (after dropping the fill 01:00 column): 01:30 (-0.0035,
+    # negative -> prior), 02:00 (-0.0039, negative -> prior), 02:30 (0.0034,
+    # positive -> provided), and so on.
+    assert wl400.loc[0, "toa_reflectance_unc_status"] == "prior"
+    assert wl400.loc[0, "toa_reflectance_unc"] == pytest.approx(0.0035)
+    assert wl400.loc[1, "toa_reflectance_unc_status"] == "prior"
+    assert wl400.loc[1, "toa_reflectance_unc"] == pytest.approx(0.0039)
+    assert wl400.loc[2, "toa_reflectance_unc_status"] == "provided"
+    assert wl400.loc[2, "toa_reflectance_unc"] == pytest.approx(0.0034)
+
+    # No row carries an "unknown" uncertainty status in this fixture except
+    # where the wavelength has no uncertainty entry at all -- every kept
+    # wavelength here does have one, so all should be provided/prior.
+    assert set(parsed["toa_reflectance_unc_status"]) <= {"provided", "prior", "unknown"}
+    assert (parsed["toa_reflectance_unc_status"] == "unknown").sum() == 0
+
+
+def test_radcalnet_parse_negative_reflectance_is_climatological():
+    # No negative reflectance values survive trimming in the real fixture
+    # (only the uncertainty block has negatives), so exercise the
+    # climatological-reflectance path via a synthetic minimal .output string.
+    text = (
+        "Site:\tTEST01\n"
+        "Lat:\t10.0\n"
+        "Lon:\t20.0\n"
+        "Alt:\t100\n"
+        "\n"
+        "Year:\t2025\t2025\n"
+        "DOY(U):\t100\t100\n"
+        "UTC:\t01:00\t01:30\n"
+        "DOY(L):\t100\t100\n"
+        "Local:\t09:00\t09:30\n"
+        "P:\t900\t900\n"
+        "T:\t280\t280\n"
+        "WV:\t0.1\t0.1\n"
+        "O3:\t250\t250\n"
+        "AOD:\t0.05\t0.05\n"
+        "Ang:\t1.0\t1.0\n"
+        "Type:\tR\tR\n"
+        "Zen:\t50.0\t50.0\n"
+        "Azi:\t100.0\t100.0\n"
+        "esd:\t0.98\t0.98\n"
+        "\n"
+        "\n"
+        "500\t-0.21\t0.22\n"
+        "\n"
+        "P:\t4.0\t4.0\n"
+        "T:\t0.5\t0.5\n"
+        "WV:\t0.01\t0.01\n"
+        "O3:\t7.0\t7.0\n"
+        "AOD:\t0.001\t0.001\n"
+        "Ang:\t0.01\t0.01\n"
+        "500\t0.005\t0.006\n"
+    )
+    from spectraccess.connectors.radcalnet.connector import _parse_output_text
+
+    frame = _parse_output_text(text, source_file="TEST01_2025_100_v01.00.output")
+    assert len(frame) == 2
+    negative_row = frame[frame["value_is_climatological"]].iloc[0]
+    assert negative_row["toa_reflectance"] == pytest.approx(0.21)
+    positive_row = frame[~frame["value_is_climatological"]].iloc[0]
+    assert positive_row["toa_reflectance"] == pytest.approx(0.22)
+
+
+def test_radcalnet_parse_zip_of_outputs_latest_version_per_day(monkeypatch):
+    import zipfile
+    from io import BytesIO
+
+    connector = _radcalnet_connector(monkeypatch)
+    fixture_text = RADCALNET_FIXTURE.read_text(encoding="utf-8")
+
+    buffer = BytesIO()
+    with zipfile.ZipFile(buffer, "w") as zf:
+        zf.writestr("GSCN/GSCN01_2025_334_v04.05.output", fixture_text)
+        # Lower version for the same site+day must be superseded, not
+        # concatenated alongside the higher one.
+        zf.writestr("GSCN/GSCN01_2025_334_v04.00.output", fixture_text)
+
+    parsed = connector.parse(buffer.getvalue())
+    assert parsed["source_version"].eq("04.05").all()
+    assert len(parsed) == 7 * 12  # same shape as the single-file parse
+
+
+def test_radcalnet_parse_canonical_validates_and_maps_fields(monkeypatch):
+    connector = _radcalnet_connector(monkeypatch)
+    canonical = connector.parse_canonical(
+        RADCALNET_FIXTURE,
+        source_url=f"{DEFAULT_BASE_URL}GSCN/data/GSCN01_2025_334_v04.05.output",
+        retrieved_at=pd.Timestamp("2026-07-07T00:00:00Z"),
+    )
+
+    assert (canonical["quantity"] == "toa_reflectance").all()
+    assert (canonical["units"] == "1").all()
+    assert (canonical["source"] == "radcalnet").all()
+    assert (canonical["source_agency"] == "RadCalNet (CEOS WGCV)").all()
+    assert (canonical["site"] == "GSCN01").all()
+    assert (canonical["latitude"] == 36.3977).all()
+    assert (canonical["longitude"] == 94.3286).all()
+    assert canonical.attrs["spectraccess_schema_version"] == "1.0"
+    assert (canonical["unc_status"] == "provided").any()
+    assert (canonical["unc_status"] == "prior").any()
+
+
+def test_radcalnet_parse_canonical_matches_two_step_path(monkeypatch):
+    connector = _radcalnet_connector(monkeypatch)
+    native = connector.parse(RADCALNET_FIXTURE)
+    two_step = radcalnet_to_canonical(native, source_url="https://example.test/gscn.output")
+    end_to_end = connector.parse_canonical(RADCALNET_FIXTURE, source_url="https://example.test/gscn.output")
+    pd.testing.assert_frame_equal(two_step.reset_index(drop=True), end_to_end.reset_index(drop=True))
+
+
+def test_radcalnet_to_canonical_rejects_frame_without_reflectance():
+    with pytest.raises(ValueError, match="toa_reflectance"):
+        radcalnet_to_canonical(pd.DataFrame({"foo": [1.0]}))
 

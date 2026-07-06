@@ -5,6 +5,7 @@ import sys
 
 from spectraccess.connectors.gsics.connector import DEFAULT_CATALOGS, GSICSCatalog, GSICSConnector
 from spectraccess.connectors.modis_viirs_cal.connector import VIIRSCatalog, VIIRSCalibrationConnector
+from spectraccess.connectors.radcalnet import RadCalNetConnector
 
 
 _GSICS_ENV_OVERRIDES = {
@@ -91,12 +92,63 @@ def smoke_viirs() -> None:
         raise RuntimeError("VIIRS discover returned no targets")
 
 
+def smoke_radcalnet() -> None:
+    # RadCalNet requires an approved account; weekly CI has no credentials.
+    # An unset env must SKIP cleanly, not fail -- same pattern as VIIRS above.
+    if not os.environ.get("RADCALNET_USERNAME") or not os.environ.get("RADCALNET_PASSWORD"):
+        print("RadCalNet smoke SKIPPED: RADCALNET_USERNAME/RADCALNET_PASSWORD not set")
+        return
+
+    connector = RadCalNetConnector()
+    sites = connector.sites()
+    if len(sites) < 6:
+        raise RuntimeError(f"RadCalNet sites() returned too few sites: {sites}")
+    print(f"RadCalNet sites: found {len(sites)} site(s)")
+
+    targets = connector.discover(site=sites[0], kind="output")
+    if not targets:
+        # Some sites may have no .output files yet; fall back to scanning
+        # every site for the first one that does.
+        for site in sites:
+            targets = connector.discover(site=site, kind="output")
+            if targets:
+                break
+    if not targets:
+        raise RuntimeError("RadCalNet discover returned no .output targets for any site")
+
+    target = targets[-1]  # sorted by (site, year, doy) -- last is newest
+    print(f"RadCalNet fetch: {target.site}/{target.filename}")
+    raw = connector.fetch(target)
+
+    df = connector.parse(raw)
+    if df.empty:
+        raise RuntimeError("RadCalNet parse produced an empty DataFrame")
+
+    canonical = connector.parse_canonical(raw, source_url=target.url)
+    if canonical.empty:
+        raise RuntimeError("RadCalNet parse_canonical produced an empty DataFrame")
+    if canonical.attrs.get("spectraccess_schema_version") is None:
+        raise RuntimeError("RadCalNet canonical frame is not schema-stamped")
+    # Whether a given day's uncertainties are measured ("provided") or
+    # climatological ("prior", the R2 spec's negative-value flag) depends on
+    # the file -- e.g. BSCN00_2026_182 carries only climatological ones. The
+    # smoke asserts the uncertainty RECORD is populated (any non-"unknown"
+    # status), not which provenance the site happened to publish that day.
+    if not (canonical["unc_status"] != "unknown").any():
+        raise RuntimeError("RadCalNet canonical frame has only 'unknown' uncertainty rows")
+
+    statuses = canonical["unc_status"].value_counts().to_dict()
+    print(f"RadCalNet parse_canonical: shape={canonical.shape}, unc_status={statuses}")
+
+
 def main() -> int:
     connector = sys.argv[1] if len(sys.argv) > 1 else ""
     if connector == "gsics":
         smoke_gsics()
     elif connector == "modis_viirs_cal":
         smoke_viirs()
+    elif connector == "radcalnet":
+        smoke_radcalnet()
     else:
         raise SystemExit(f"unknown connector {connector!r}")
     return 0
