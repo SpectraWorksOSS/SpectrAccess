@@ -14,6 +14,14 @@ import pandas as pd
 from spectraccess.connectors.thredds import ThreddsCatalogRef, ThreddsDataset, walk_catalog
 from spectraccess.core.connector import Connector
 from spectraccess.core.fetch import fetch_url
+from spectraccess.core.schema import Uncertainty, UncertaintyStatus, empty_frame, uncertainty_columns, validate
+
+# Native GSICS value column -> (canonical quantity name, matching stderr column)
+_CANONICAL_QUANTITIES: tuple[tuple[str, str, str], ...] = (
+    ("slope", "gsics_correction_slope", "slope_se"),
+    ("offset", "gsics_correction_offset", "offset_se"),
+    ("std_scene_tb_bias", "gsics_std_scene_tb_bias", "std_scene_tb_bias_se"),
+)
 
 
 def _tokenize(text: str) -> frozenset[str]:
@@ -152,6 +160,96 @@ class GSICSConnector(Connector):
             return _parse_netcdf(payload, source_agency=source_agency)
         table = _read_table(payload)
         return _normalize_gsics_table(table)
+
+    def parse_canonical(
+        self,
+        raw: bytes | str,
+        *,
+        source_agency: str | None = None,
+        source_url: str | None = None,
+    ) -> pd.DataFrame:
+        """Parse raw GSICS content directly into the canonical schema.
+
+        Equivalent to ``to_canonical(self.parse(raw, source_agency=...), source_url=...)``.
+        """
+
+        native = self.parse(raw, source_agency=source_agency)
+        return to_canonical(native, source_url=source_url)
+
+
+def to_canonical(
+    frame: pd.DataFrame,
+    *,
+    source_url: str | None = None,
+    retrieved_at=None,
+) -> pd.DataFrame:
+    """Melt a native GSICS GPPA frame (one row per channel x date) into the
+    spectrAccess canonical long/tidy schema (one row per quantity value).
+
+    Handles the netCDF-shaped native frame produced by `_parse_netcdf`
+    (columns `timestamp, sensor, reference_sensor, band, source_agency,
+    central_wavelength?, slope, slope_se, offset, offset_se,
+    std_scene_tb_bias, std_scene_tb_bias_se`); any of the measure columns may
+    be absent. CSV-fallback frames (from `_normalize_gsics_table`) lack the
+    `_se` columns and a different value column shape, so they melt to
+    all-`unknown` uncertainty rows where a recognised quantity column exists.
+
+    Rows where the quantity value itself is null are skipped (no value, no
+    row). The returned frame is always schema-valid (passed through
+    `validate()`).
+    """
+
+    if frame.empty:
+        return empty_frame()
+
+    rows: list[dict[str, object]] = []
+    for _, native_row in frame.iterrows():
+        for value_column, quantity_name, se_column in _CANONICAL_QUANTITIES:
+            if value_column not in frame.columns:
+                continue
+            value = native_row[value_column]
+            if pd.isna(value):
+                continue
+
+            se_value = None
+            if se_column in frame.columns:
+                candidate = native_row[se_column]
+                if pd.notna(candidate):
+                    se_value = float(candidate)
+
+            if se_value is not None:
+                unc = Uncertainty(value=se_value, status=UncertaintyStatus.PROVIDED, k=1.0, provider="source")
+            else:
+                unc = Uncertainty(value=None, status=UncertaintyStatus.UNKNOWN)
+
+            row: dict[str, object] = {
+                "time": native_row.get("timestamp"),
+                "platform": None,
+                "instrument": native_row.get("sensor"),
+                "band": native_row.get("band"),
+                "wavelength_nm": None,
+                "site": None,
+                "latitude": None,
+                "longitude": None,
+                "reference": native_row.get("reference_sensor"),
+                "quantity": quantity_name,
+                "value": float(value),
+                "units": None,
+                "source": "gsics",
+                "source_agency": native_row.get("source_agency"),
+                "source_url": source_url,
+                "retrieved_at": retrieved_at,
+            }
+            row.update(uncertainty_columns(unc))
+            if "central_wavelength" in frame.columns:
+                row["central_wavelength"] = native_row.get("central_wavelength")
+            rows.append(row)
+
+    if not rows:
+        return empty_frame()
+
+    long_frame = pd.DataFrame(rows)
+    return validate(long_frame)
 
 
 def _read_payload(raw: bytes | str) -> bytes:

@@ -37,6 +37,36 @@ print(table.head())
 
 NOAA/NESDIS GSICS products are also mirrored on the EUMETSAT collaboration server's master THREDDS catalog (`nesdisProducts.xml`), so some NESDIS product families may already be reachable via the EUMETSAT connector default even while the canonical NOAA STAR host is down.
 
+## Canonical schema
+
+Alongside each connector's native `parse()` output, connectors can additionally emit
+a shared, versioned, long/tidy canonical schema (`spectraccess.core.schema`, currently
+`SCHEMA_VERSION = "1.0"`) so downstream tools can consume any source through one stable
+contract: one row per quantity value plus its uncertainty record. GSICS exposes this via
+`to_canonical(native_frame, ...)` and the connector convenience method `parse_canonical(raw, ...)`.
+
+| column | meaning |
+| --- | --- |
+| `time`, `platform`, `instrument`, `band`, `wavelength_nm` | observation identity |
+| `site`, `latitude`, `longitude` | ground-site location, when applicable |
+| `reference` | reference sensor/standard for differential quantities |
+| `quantity` (required, never null) | snake_case quantity name (CF `standard_name` when one exists) |
+| `value`, `units` | the measurement |
+| `unc_value`, `unc_status`, `unc_k`, `unc_provider` | the uncertainty record (see below) |
+| `source` (required, never null), `source_agency`, `source_url`, `retrieved_at` | provenance |
+
+Uncertainty is a record, not a bare number: `unc_value` may be null, but `unc_status` never
+is. `unc_status` is one of:
+
+- `provided` -- the source itself supplied the uncertainty.
+- `derived` -- computed by spectrAccess or a downstream tool.
+- `prior` -- an assumed/prior uncertainty, not measured for this row.
+- `unknown` -- no uncertainty value is available (`unc_value` is null).
+
+Call `spectraccess.core.schema.validate(df)` to check a frame against the schema; it raises
+`SchemaError` naming every violation found. Extra, connector-specific columns are always
+allowed and pass through validation untouched.
+
 Maintainer: SpectraWorks B.V. Built by SpectraWorks, makers of RefCal.
 
 spectrAccess code is licensed under Apache-2.0. Source data remains governed by each external portal's own data terms; see each connector's `DATA_TERMS.md`.
