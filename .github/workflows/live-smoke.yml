@@ -15,7 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        connector: [gsics, modis_viirs_cal]
+        connector: [gsics, modis_viirs_cal, radcalnet]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -36,6 +36,10 @@ jobs:
           SPECTRACCESS_GSICS_NOAA_STAR_CATALOG_URL: ${{ vars.SPECTRACCESS_GSICS_NOAA_STAR_CATALOG_URL }}
           SPECTRACCESS_GSICS_CMA_CATALOG_URL: ${{ vars.SPECTRACCESS_GSICS_CMA_CATALOG_URL }}
           SPECTRACCESS_VIIRS_CATALOG_URL: ${{ vars.SPECTRACCESS_VIIRS_CATALOG_URL }}
+          # BYO-credentials: the radcalnet smoke prints SKIP and exits 0 until
+          # these repo secrets are configured (a free RadCalNet portal account).
+          RADCALNET_USERNAME: ${{ secrets.RADCALNET_USERNAME }}
+          RADCALNET_PASSWORD: ${{ secrets.RADCALNET_PASSWORD }}
         run: python scripts/live_smoke.py "${{ matrix.connector }}"
       - name: Open or update connector-broken issue
         if: steps.smoke.outcome == 'failure'
