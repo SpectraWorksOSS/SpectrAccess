@@ -173,3 +173,37 @@ def test_validate_collects_multiple_errors_in_one_message():
     message = str(exc_info.value)
     assert "quantity" in message
     assert "source" in message
+
+
+def test_validate_non_numeric_value():
+    df = pd.DataFrame([_valid_row(value="not-a-number")])
+    with pytest.raises(SchemaError, match="'value'"):
+        validate(df)
+
+
+def test_validate_non_finite_value():
+    df = pd.DataFrame([_valid_row(value=float("inf"))])
+    with pytest.raises(SchemaError, match="'value'"):
+        validate(df)
+
+
+def test_validate_non_numeric_wavelength():
+    df = pd.DataFrame([_valid_row(wavelength_nm="reddish")])
+    with pytest.raises(SchemaError, match="wavelength_nm"):
+        validate(df)
+
+
+def test_validate_non_numeric_latitude_and_unc_k():
+    df = pd.DataFrame([_valid_row(latitude="north", unc_k="two")])
+    with pytest.raises(SchemaError) as exc_info:
+        validate(df)
+    message = str(exc_info.value)
+    assert "latitude" in message
+    assert "unc_k" in message
+
+
+def test_validate_allows_negative_value():
+    # Measurement values (offsets, biases, latitudes) may legitimately be
+    # negative; only unc_value carries the >= 0 rule.
+    df = pd.DataFrame([_valid_row(value=-0.19)])
+    validate(df)

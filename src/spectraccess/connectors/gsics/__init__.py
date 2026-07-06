@@ -1,4 +1,3 @@
-from .connector import GSICSConnector
+from .connector import GSICSCatalog, GSICSConnector, to_canonical
 
-__all__ = ["GSICSConnector"]
-
+__all__ = ["GSICSCatalog", "GSICSConnector", "to_canonical"]

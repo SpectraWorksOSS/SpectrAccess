@@ -22,6 +22,11 @@ def test_connector_run_chains_methods():
     assert DemoConnector().run() == "value\n1\n"
 
 
+def test_connector_parse_canonical_default_is_loud():
+    with pytest.raises(NotImplementedError, match="canonical schema"):
+        DemoConnector().parse_canonical(b"raw")
+
+
 def test_credential_session_uses_env_for_basic_auth():
     session = CredentialSession(
         env={"USER_ENV": "user", "PASS_ENV": "secret"},

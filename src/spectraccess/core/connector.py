@@ -28,6 +28,19 @@ class Connector(ABC):
     def parse(self, raw: bytes | str) -> Any:
         """Parse raw content into a tidy table or dataset."""
 
+    def parse_canonical(self, raw: bytes | str, **kwargs: Any) -> Any:
+        """Parse raw content into the canonical tidy schema (`core.schema`).
+
+        Connectors that emit the canonical schema override this. The default
+        raises so a missing implementation is loud, never a silent gap: every
+        connector is expected to grow a canonical emitter as the schema rolls
+        out (schema v1 ships with GSICS as the first emitter).
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not implement the canonical schema yet; "
+            "use parse() for its native output"
+        )
+
     def run(self, *, fetch_kwargs: dict[str, Any] | None = None, **discover_kwargs: Any) -> Any:
         """Discover the first target, fetch it, and parse it.
 

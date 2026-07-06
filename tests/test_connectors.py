@@ -68,8 +68,42 @@ def test_gsics_to_canonical_from_netcdf_fixture():
     assert (canonical["reference"] == "MetOpB IASI").all()
     assert "central_wavelength" in canonical.columns
     assert canonical["central_wavelength"].notna().all()
-    assert canonical["wavelength_nm"].isna().all()
+    # The fixture's central_wavelength declares units "m", so wavelength_nm is
+    # populated via an honest unit conversion (3.92e-06 m -> 3920 nm).
+    assert canonical["wavelength_nm"].notna().all()
+    assert canonical["wavelength_nm"].min() == pytest.approx(3920.0)
     assert canonical.attrs["spectraccess_schema_version"] == "1.0"
+
+
+def test_gsics_to_canonical_from_csv_fallback_frame():
+    # CSV-fallback native frames carry the generic correction_coefficient
+    # column; they must melt to canonical rows (all-unknown uncertainty),
+    # never to a silently empty frame.
+    native = GSICSConnector().parse(FIXTURES / "gsics_coefficients.csv")
+    canonical = to_canonical(native)
+
+    assert len(canonical) == len(native)
+    assert (canonical["quantity"] == "gsics_correction_coefficient").all()
+    assert (canonical["unc_status"] == "unknown").all()
+    assert canonical["unc_value"].isna().all()
+
+
+def test_gsics_to_canonical_rejects_unrecognized_frame():
+    frame = pd.DataFrame({"foo": [1.0], "bar": [2.0]})
+    with pytest.raises(ValueError, match="no recognised GSICS quantity columns"):
+        to_canonical(frame)
+
+
+def test_gsics_parse_canonical_carries_retrieved_at():
+    fixture = FIXTURES / "gsics_msg4_seviri_metopb_iasi_nrtc_20260704.nc"
+    stamp = pd.Timestamp("2026-07-06T12:00:00")
+    canonical = GSICSConnector().parse_canonical(fixture, retrieved_at=stamp)
+    assert (canonical["retrieved_at"] == stamp).all()
+
+
+def test_gsics_parse_rejects_empty_payload():
+    with pytest.raises(ValueError, match="empty GSICS payload"):
+        GSICSConnector().parse(b"")
 
 
 def test_gsics_parse_canonical_matches_two_step_path():

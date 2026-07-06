@@ -139,6 +139,11 @@ CANONICAL_COLUMNS: dict[str, ColumnSpec] = {
 # Columns whose VALUES must never be null.
 _NEVER_NULL_COLUMNS = ("quantity", "unc_status", "source")
 
+# Float columns whose non-null VALUES must be numeric and finite. `unc_value`
+# additionally must be >= 0 (checked separately); the others may be negative
+# (offsets, biases, latitudes, longitudes).
+_FLOAT_COLUMNS = ("wavelength_nm", "latitude", "longitude", "value", "unc_value", "unc_k")
+
 _DTYPE_TO_PANDAS = {
     "datetime": "datetime64[ns, UTC]",
     "str": "object",
@@ -238,15 +243,21 @@ def validate(df: pd.DataFrame) -> pd.DataFrame:
             f"({int(present_but_unknown.sum())} row(s) violate this)"
         )
 
+    for column in _FLOAT_COLUMNS:
+        present = df.loc[df[column].notna(), column]
+        if present.empty:
+            continue
+        numeric = pd.to_numeric(present, errors="coerce")
+        non_finite = numeric.isna() | ~numeric.apply(lambda v: isfinite(v) if pd.notna(v) else False)
+        if non_finite.any():
+            errors.append(
+                f"column {column!r} has non-numeric or non-finite entries ({int(non_finite.sum())} row(s))"
+            )
+
     unc_present = df.loc[~unc_value_null, "unc_value"]
     if not unc_present.empty:
         numeric = pd.to_numeric(unc_present, errors="coerce")
-        non_finite = numeric.isna() | ~numeric.apply(lambda v: isfinite(v) if pd.notna(v) else False)
         negative = numeric < 0
-        if non_finite.any():
-            errors.append(
-                f"column 'unc_value' has non-finite entries ({int(non_finite.sum())} row(s))"
-            )
         if (negative.fillna(False)).any():
             errors.append(
                 f"column 'unc_value' has negative entries ({int(negative.fillna(False).sum())} row(s))"

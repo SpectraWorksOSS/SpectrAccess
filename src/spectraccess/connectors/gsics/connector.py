@@ -21,7 +21,30 @@ _CANONICAL_QUANTITIES: tuple[tuple[str, str, str], ...] = (
     ("slope", "gsics_correction_slope", "slope_se"),
     ("offset", "gsics_correction_offset", "offset_se"),
     ("std_scene_tb_bias", "gsics_std_scene_tb_bias", "std_scene_tb_bias_se"),
+    # CSV-fallback frames (_normalize_gsics_table) carry a single generic
+    # coefficient column with no stderr companion; without this mapping those
+    # rows would silently melt to an empty canonical frame.
+    ("correction_coefficient", "gsics_correction_coefficient", "correction_coefficient_se"),
 )
+
+# central_wavelength unit strings convertible to nm; anything else stays raw.
+_WAVELENGTH_UNIT_TO_NM = {
+    "m": 1e9,
+    "meter": 1e9,
+    "meters": 1e9,
+    "metre": 1e9,
+    "metres": 1e9,
+    "um": 1e3,
+    "micrometer": 1e3,
+    "micrometers": 1e3,
+    "micrometre": 1e3,
+    "micrometres": 1e3,
+    "nm": 1.0,
+    "nanometer": 1.0,
+    "nanometers": 1.0,
+    "nanometre": 1.0,
+    "nanometres": 1.0,
+}
 
 
 def _tokenize(text: str) -> frozenset[str]:
@@ -167,14 +190,16 @@ class GSICSConnector(Connector):
         *,
         source_agency: str | None = None,
         source_url: str | None = None,
+        retrieved_at=None,
     ) -> pd.DataFrame:
         """Parse raw GSICS content directly into the canonical schema.
 
-        Equivalent to ``to_canonical(self.parse(raw, source_agency=...), source_url=...)``.
+        Equivalent to ``to_canonical(self.parse(raw, source_agency=...),
+        source_url=..., retrieved_at=...)``.
         """
 
         native = self.parse(raw, source_agency=source_agency)
-        return to_canonical(native, source_url=source_url)
+        return to_canonical(native, source_url=source_url, retrieved_at=retrieved_at)
 
 
 def to_canonical(
@@ -188,11 +213,13 @@ def to_canonical(
 
     Handles the netCDF-shaped native frame produced by `_parse_netcdf`
     (columns `timestamp, sensor, reference_sensor, band, source_agency,
-    central_wavelength?, slope, slope_se, offset, offset_se,
+    wavelength_nm?, central_wavelength?, slope, slope_se, offset, offset_se,
     std_scene_tb_bias, std_scene_tb_bias_se`); any of the measure columns may
-    be absent. CSV-fallback frames (from `_normalize_gsics_table`) lack the
-    `_se` columns and a different value column shape, so they melt to
-    all-`unknown` uncertainty rows where a recognised quantity column exists.
+    be absent. CSV-fallback frames (from `_normalize_gsics_table`) carry a
+    generic `correction_coefficient` column with no `_se` companion, so they
+    melt to all-`unknown` uncertainty rows. A non-empty frame with NO
+    recognised quantity column raises `ValueError` rather than returning a
+    silently empty result.
 
     Rows where the quantity value itself is null are skipped (no value, no
     row). The returned frame is always schema-valid (passed through
@@ -201,6 +228,16 @@ def to_canonical(
 
     if frame.empty:
         return empty_frame()
+
+    recognized = [c for c, _q, _se in _CANONICAL_QUANTITIES if c in frame.columns]
+    if not recognized:
+        # A non-empty native frame with NO recognised quantity column must be
+        # loud, not a "schema-valid" empty result -- silent data loss.
+        raise ValueError(
+            "no recognised GSICS quantity columns in native frame "
+            f"(expected one of {[c for c, _q, _se in _CANONICAL_QUANTITIES]}, "
+            f"got {list(frame.columns)})"
+        )
 
     rows: list[dict[str, object]] = []
     for _, native_row in frame.iterrows():
@@ -222,12 +259,13 @@ def to_canonical(
             else:
                 unc = Uncertainty(value=None, status=UncertaintyStatus.UNKNOWN)
 
+            wavelength_nm = native_row.get("wavelength_nm")
             row: dict[str, object] = {
                 "time": native_row.get("timestamp"),
                 "platform": None,
                 "instrument": native_row.get("sensor"),
                 "band": native_row.get("band"),
-                "wavelength_nm": None,
+                "wavelength_nm": float(wavelength_nm) if pd.notna(wavelength_nm) else None,
                 "site": None,
                 "latitude": None,
                 "longitude": None,
@@ -329,6 +367,15 @@ def _dataset_to_frame(dataset, *, source_agency: str | None = None) -> pd.DataFr
     n_date = dataset.sizes["date"] if has_date_dim else 1
     dates = dataset["date"].values if has_date_dim else [None]
 
+    # Convert central_wavelength to nm only when the variable declares a
+    # recognised unit -- never guess a conversion factor from magnitudes.
+    wavelengths_nm = None
+    if "central_wavelength" in dataset.variables:
+        units = str(dataset["central_wavelength"].attrs.get("units", "")).strip().lower()
+        factor = _WAVELENGTH_UNIT_TO_NM.get(units)
+        if factor is not None:
+            wavelengths_nm = [float(v) * factor for v in dataset["central_wavelength"].values]
+
     per_chan_vars = ["central_wavelength"]
     per_date_chan_vars = [
         "slope",
@@ -350,6 +397,8 @@ def _dataset_to_frame(dataset, *, source_agency: str | None = None) -> pd.DataFr
                 "band": channel_names[chan_idx],
                 "source_agency": agency,
             }
+            if wavelengths_nm is not None:
+                row["wavelength_nm"] = wavelengths_nm[chan_idx]
             for var_name in per_chan_vars:
                 if var_name in dataset.variables:
                     row[var_name] = dataset[var_name].values[chan_idx]
@@ -370,6 +419,8 @@ def _dataset_to_frame(dataset, *, source_agency: str | None = None) -> pd.DataFr
 
 def _read_table(payload: bytes) -> pd.DataFrame:
     text = payload.decode("utf-8", errors="replace")
+    if not text.strip():
+        raise ValueError("empty GSICS payload -- nothing to parse")
     if "," in text.splitlines()[0]:
         return pd.read_csv(StringIO(text), comment="#")
     try:
