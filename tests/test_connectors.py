@@ -414,3 +414,124 @@ def test_radcalnet_to_canonical_rejects_frame_without_reflectance():
     with pytest.raises(ValueError, match="toa_reflectance"):
         radcalnet_to_canonical(pd.DataFrame({"foo": [1.0]}))
 
+
+# --- Connector.run() target-provenance contract (t_2af776c2) ---------------
+
+from spectraccess.connectors.thredds import ThreddsDataset
+from spectraccess.core.connector import Connector
+
+
+class _RecordingConnector(Connector):
+    """Minimal Connector that records the kwargs each parse path receives."""
+
+    def __init__(self, target):
+        self._target = target
+        self.parse_kwargs = None
+        self.canonical_kwargs = None
+
+    def discover(self, **kwargs):
+        return [self._target]
+
+    def fetch(self, target, **kwargs):
+        return b"raw"
+
+    def parse(self, raw, **kwargs):
+        self.parse_kwargs = kwargs
+        return {"native": True}
+
+    def parse_canonical(self, raw, **kwargs):
+        self.canonical_kwargs = kwargs
+        return {"canonical": True}
+
+    def _parse_kwargs_for(self, target):
+        return {"source_agency": target}
+
+    def _canonical_kwargs_for(self, target):
+        return {"source_agency": target, "source_url": f"u://{target}"}
+
+
+class _BareConnector(Connector):
+    """Overrides neither hook -- proves the default carries no target kwargs."""
+
+    def discover(self, **kwargs):
+        return ["target"]
+
+    def fetch(self, target, **kwargs):
+        return b"raw"
+
+    def parse(self, raw, **kwargs):
+        return kwargs
+
+
+def test_run_carries_target_parse_provenance():
+    connector = _RecordingConnector(target="EUMETSAT")
+    connector.run()
+    assert connector.parse_kwargs == {"source_agency": "EUMETSAT"}
+    assert connector.canonical_kwargs is None
+
+
+def test_run_canonical_uses_canonical_kwargs():
+    connector = _RecordingConnector(target="CMA")
+    connector.run(canonical=True)
+    assert connector.canonical_kwargs == {"source_agency": "CMA", "source_url": "u://CMA"}
+    assert connector.parse_kwargs is None
+
+
+def test_run_parse_kwargs_overrides_target_provenance():
+    connector = _RecordingConnector(target="EUMETSAT")
+    connector.run(parse_kwargs={"source_agency": "OVERRIDE", "extra": 1})
+    assert connector.parse_kwargs == {"source_agency": "OVERRIDE", "extra": 1}
+
+
+def test_run_without_hook_overrides_passes_no_target_kwargs():
+    # Backward compat: a connector that does not override the hooks still runs,
+    # and its parse() sees no target-derived kwargs (as before this contract).
+    assert _BareConnector().run() == {}
+
+
+def test_gsics_run_hooks_extract_thredds_provenance():
+    dataset = ThreddsDataset(
+        name="msg4-seviri",
+        catalog_url="http://host/cat.xml",
+        access_url="http://host/f.nc",
+        source_agency="EUMETSAT",
+    )
+    connector = GSICSConnector()
+    assert connector._parse_kwargs_for(dataset) == {"source_agency": "EUMETSAT"}
+    assert connector._canonical_kwargs_for(dataset) == {
+        "source_agency": "EUMETSAT",
+        "source_url": "http://host/f.nc",
+    }
+    # A bare-string target (fetch-by-URL path) carries no dataclass provenance.
+    assert connector._parse_kwargs_for("http://host/f.nc") == {}
+    assert connector._canonical_kwargs_for("http://host/f.nc") == {}
+
+
+def test_radcalnet_run_canonical_hook_extracts_url(monkeypatch):
+    connector = _radcalnet_connector(monkeypatch)
+    target = RadCalNetTarget(
+        site="GSCN",
+        filename="GSCN01_2025_334_v04.05.output",
+        url=f"{DEFAULT_BASE_URL}GSCN/data/GSCN01_2025_334_v04.05.output",
+        fmt="ascii",
+        kind="output",
+    )
+    assert connector._canonical_kwargs_for(target) == {"source_url": target.url}
+    # Native parse() takes no provenance kwargs, so the native hook stays empty.
+    assert connector._parse_kwargs_for(target) == {}
+
+
+def test_radcalnet_run_canonical_end_to_end_carries_source_url(monkeypatch, requests_mock):
+    connector = _radcalnet_connector(monkeypatch)
+    filename = "GSCN01_2025_334_v04.05.output"
+    file_url = f"{DEFAULT_BASE_URL}GSCN/data/{filename}"
+    requests_mock.get(f"{DEFAULT_BASE_URL}GSCN/data/", json=[{"name": filename}])
+    requests_mock.get(file_url, content=RADCALNET_FIXTURE.read_bytes())
+
+    canonical = connector.run(site="GSCN", canonical=True)
+
+    assert canonical.attrs["spectraccess_schema_version"] == "1.0"
+    # The discovered target's URL survived the convenience path into provenance.
+    assert (canonical["source_url"] == file_url).all()
+    assert (canonical["site"] == "GSCN01").all()
+

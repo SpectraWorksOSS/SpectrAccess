@@ -213,6 +213,13 @@ class RadCalNetConnector(Connector):
                 fh.write(chunk)
         return str(dest_path)
 
+    def _canonical_kwargs_for(self, target: object) -> dict[str, object]:
+        # Native parse() takes no provenance kwargs, so only the canonical path
+        # has anything to carry: the target's file URL as source_url.
+        if isinstance(target, RadCalNetTarget) and target.url:
+            return {"source_url": target.url}
+        return {}
+
     def parse(self, raw: bytes | str) -> pd.DataFrame:
         """Parse one ``.output`` file, or a ZIP of daily files, into a tidy frame.
 

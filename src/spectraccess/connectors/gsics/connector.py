@@ -177,6 +177,17 @@ class GSICSConnector(Connector):
             raise ValueError("target does not include an access URL")
         return fetch_url(url, cache_dir=self.cache_dir, **kwargs)
 
+    def _parse_kwargs_for(self, target: object) -> dict[str, object]:
+        if isinstance(target, ThreddsDataset) and target.source_agency:
+            return {"source_agency": target.source_agency}
+        return {}
+
+    def _canonical_kwargs_for(self, target: object) -> dict[str, object]:
+        kwargs = self._parse_kwargs_for(target)
+        if isinstance(target, ThreddsDataset) and target.access_url:
+            kwargs["source_url"] = target.access_url
+        return kwargs
+
     def parse(self, raw: bytes | str, *, source_agency: str | None = None) -> pd.DataFrame:
         payload = _read_payload(raw)
         if _looks_like_netcdf(payload):

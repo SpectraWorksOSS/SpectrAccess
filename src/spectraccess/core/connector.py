@@ -41,17 +41,60 @@ class Connector(ABC):
             "use parse() for its native output"
         )
 
-    def run(self, *, fetch_kwargs: dict[str, Any] | None = None, **discover_kwargs: Any) -> Any:
+    def _parse_kwargs_for(self, target: Any) -> dict[str, Any]:
+        """Provenance kwargs a discovered ``target`` contributes to ``parse()``.
+
+        The convenience path (``run()``) discovers a target, fetches it, then
+        parses -- but ``parse()`` takes only raw bytes, so any provenance the
+        target carried (source agency, access URL, ...) is lost unless the
+        connector maps it forward here. Default: nothing target-derived.
+        Connectors whose ``parse()`` accepts provenance keywords override this
+        so ``run()`` stays lossless. The returned keys MUST be accepted by the
+        connector's own ``parse()`` signature.
+        """
+        return {}
+
+    def _canonical_kwargs_for(self, target: Any) -> dict[str, Any]:
+        """Provenance kwargs a target contributes to ``parse_canonical()``.
+
+        Same role as :meth:`_parse_kwargs_for` but for the canonical path,
+        whose provenance keys differ (canonical output carries ``source_url``
+        and ``retrieved_at`` that native ``parse()`` has no column for). The
+        returned keys MUST be accepted by the connector's ``parse_canonical()``.
+        """
+        return {}
+
+    def run(
+        self,
+        *,
+        fetch_kwargs: dict[str, Any] | None = None,
+        canonical: bool = False,
+        parse_kwargs: dict[str, Any] | None = None,
+        **discover_kwargs: Any,
+    ) -> Any:
         """Discover the first target, fetch it, and parse it.
 
         Keyword arguments go to ``discover()`` only -- discovery filters like
         ``contains``/``max_catalogs`` are not valid fetch options. Pass
         fetch-stage options (``timeout``, ``use_cache``, ...) via
         ``fetch_kwargs``.
+
+        The discovered target's provenance is carried into the parse stage via
+        :meth:`_parse_kwargs_for` / :meth:`_canonical_kwargs_for`, so the
+        convenience path keeps the same provenance a manual
+        ``discover -> fetch -> parse`` would. Set ``canonical=True`` to emit the
+        canonical schema (``parse_canonical``) instead of native ``parse``.
+        ``parse_kwargs`` is merged last, so a caller can add or override a
+        provenance key (e.g. ``retrieved_at``).
         """
         targets = self.discover(**discover_kwargs)
         if not targets:
             raise ValueError("discover() returned no targets")
-        raw = self.fetch(targets[0], **(fetch_kwargs or {}))
-        return self.parse(raw)
+        target = targets[0]
+        raw = self.fetch(target, **(fetch_kwargs or {}))
+        if canonical:
+            kwargs = {**self._canonical_kwargs_for(target), **(parse_kwargs or {})}
+            return self.parse_canonical(raw, **kwargs)
+        kwargs = {**self._parse_kwargs_for(target), **(parse_kwargs or {})}
+        return self.parse(raw, **kwargs)
 
