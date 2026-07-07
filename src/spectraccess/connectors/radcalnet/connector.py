@@ -621,7 +621,36 @@ def _parse_output_text(text: str, *, source_file: str | None) -> pd.DataFrame:
 
     frame = pd.DataFrame(rows)
     frame["timestamp"] = pd.to_datetime(frame["timestamp"], utc=True)
+    # Raw-metadata passthrough: the cleaned tidy frame keeps only the 8 named,
+    # transformed ancillary params, but a consumer may need EVERY first-block
+    # metadata row verbatim (e.g. Local, DOY(L), Type, esd) with no fill/sign
+    # transform. Attach them here so a per-file parse is lossless. attrs are
+    # per-frame and do not survive concat -- only single-file parse (parse() on
+    # one .output, or parse_output_text) carries this; the zip path does not.
+    frame.attrs["raw_metadata"] = {
+        "site_id": site_id,
+        "lat": lat,
+        "lon": lon,
+        "alt_m": alt_m,
+        "version": version,
+        "n_times": n_times,
+        "timestamps": list(timestamps),
+        "rows": {label: list(values) for label, values in metadata.items()},
+    }
     return frame
+
+
+def parse_output_text(text: str, *, source_file: str | None = None) -> pd.DataFrame:
+    """Parse one ``.output`` file's text into the native tidy frame (public).
+
+    Same result as :meth:`RadCalNetConnector.parse` on a single ``.output``
+    file, exposed at module level for consumers that hold the raw text and want
+    the per-file frame plus its ``attrs["raw_metadata"]`` passthrough (every
+    first-block metadata row, verbatim). See ``_parse_output_text`` for the
+    value semantics.
+    """
+
+    return _parse_output_text(text, source_file=source_file)
 
 
 def _apply_fill_and_sign(value: float | None) -> float | None:

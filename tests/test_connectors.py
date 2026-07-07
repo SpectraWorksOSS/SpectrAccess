@@ -521,6 +521,27 @@ def test_radcalnet_run_canonical_hook_extracts_url(monkeypatch):
     assert connector._parse_kwargs_for(target) == {}
 
 
+def test_radcalnet_parse_output_text_exposes_raw_metadata_passthrough():
+    from spectraccess.connectors.radcalnet import parse_output_text
+
+    frame = parse_output_text(RADCALNET_FIXTURE.read_text(encoding="utf-8"), source_file=RADCALNET_FIXTURE.name)
+    raw = frame.attrs["raw_metadata"]
+
+    # Every first-block metadata row is present verbatim, including rows the
+    # cleaned tidy frame discards entirely (Local, DOY(L), Type, esd).
+    rows = raw["rows"]
+    for label in ("Year", "DOY(U)", "UTC", "DOY(L)", "Local", "Type", "esd", "AOD"):
+        assert label in rows, f"missing raw metadata row {label!r}"
+    # Verbatim, untransformed: Type is the raw string token, AOD is the raw value.
+    assert rows["Type"][0] == "R"
+    assert rows["AOD"][0] == "0.0533"
+    assert raw["site_id"] == "GSCN01"
+    assert raw["version"] == "04.05"
+    assert len(raw["timestamps"]) == raw["n_times"]
+    # Per-time row lengths line up with the time axis.
+    assert len(rows["UTC"]) == raw["n_times"]
+
+
 def test_radcalnet_run_canonical_end_to_end_carries_source_url(monkeypatch, requests_mock):
     connector = _radcalnet_connector(monkeypatch)
     filename = "GSCN01_2025_334_v04.05.output"
