@@ -521,6 +521,25 @@ def test_radcalnet_run_canonical_hook_extracts_url(monkeypatch):
     assert connector._parse_kwargs_for(target) == {}
 
 
+def test_radcalnet_parse_output_text_tolerates_missing_ancillary_rows():
+    # A .output file that omits several of the 8 named ancillary rows (here:
+    # only P/AOD/Type/Zen present, no Azi/Ang/WV/O3/T) must parse, not IndexError.
+    from spectraccess.connectors.radcalnet import parse_output_text
+
+    text = (
+        "Site:\tRVUS00\nLat:\t38.497\nLon:\t-115.690\nAlt:\t1435\n\n"
+        "Year:\t2026\t2026\nDOY(U):\t171\t171\nUTC:\t17:00\t17:30\n"
+        "P:\t855\t855\nAOD:\t0.076\t0.072\nType:\tR\tR\nZen:\t37.9\t32.2\n\n"
+        "400\t0.2528\t0.2534\n410\t0.2529\t0.2537\n"
+    )
+    frame = parse_output_text(text, source_file="RVUS00_2026_171_v04.05.output")
+    assert not frame.empty
+    assert set(frame["wavelength_nm"]) == {400.0, 410.0}
+    # Present ancillary carried; absent ones are NaN, not a crash.
+    assert (frame["aod"].isin([0.076, 0.072])).all()
+    assert frame["water_vapour_g_cm2"].isna().all()
+
+
 def test_radcalnet_parse_output_text_exposes_raw_metadata_passthrough():
     from spectraccess.connectors.radcalnet import parse_output_text
 

@@ -572,10 +572,13 @@ def _parse_output_text(text: str, *, source_file: str | None) -> pd.DataFrame:
 
     rows: list[dict[str, object]] = []
     for time_idx in range(n_times):
-        ancillary_values = {
-            canonical: _apply_fill_and_sign(ancillary_raw[src_key][time_idx])
-            for src_key, canonical in _ANCILLARY_ROWS
-        }
+        # A .output file may omit an ancillary row entirely, or carry fewer
+        # values than there are time columns -> treat a missing cell as no data.
+        ancillary_values = {}
+        for src_key, canonical in _ANCILLARY_ROWS:
+            row_values = ancillary_raw[src_key]
+            cell = row_values[time_idx] if time_idx < len(row_values) else None
+            ancillary_values[canonical] = _apply_fill_and_sign(cell)
         for wavelength in wavelength_order:
             raw_value = _to_float(reflectance_by_wavelength[wavelength][time_idx])
             if raw_value is None or raw_value >= _FILL_THRESHOLD:
