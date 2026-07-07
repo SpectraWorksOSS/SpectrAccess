@@ -368,7 +368,13 @@ def _parse_zip(payload: bytes) -> pd.DataFrame:
                 frames.append(frame)
     if not frames:
         return _empty_native_frame()
-    return pd.concat(frames, ignore_index=True)
+    combined = pd.concat(frames, ignore_index=True)
+    # raw_metadata is per-file; pandas concat can otherwise carry one
+    # constituent frame's attrs onto the multi-file result. Drop it so the zip
+    # path never exposes a misleading per-file passthrough -- only single-file
+    # parse (parse()/parse_output_text on one .output) carries raw_metadata.
+    combined.attrs.pop("raw_metadata", None)
+    return combined
 
 
 def _select_latest_output_entries(names: Iterable[str]) -> list[str]:

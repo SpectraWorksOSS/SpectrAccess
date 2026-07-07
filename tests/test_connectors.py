@@ -380,6 +380,9 @@ def test_radcalnet_parse_zip_of_outputs_latest_version_per_day(monkeypatch):
     parsed = connector.parse(buffer.getvalue())
     assert parsed["source_version"].eq("04.05").all()
     assert len(parsed) == 7 * 12  # same shape as the single-file parse
+    # The zip (multi-file) path must NOT expose a per-file raw_metadata attr:
+    # it is meaningless for a concatenated multi-file frame.
+    assert "raw_metadata" not in parsed.attrs
 
 
 def test_radcalnet_parse_canonical_validates_and_maps_fields(monkeypatch):
