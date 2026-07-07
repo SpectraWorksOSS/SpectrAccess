@@ -10,6 +10,7 @@ htmlcov/
 build/
 dist/
 .venv/
+.venv_verify/
 venv/
 env/
 .env

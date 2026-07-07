@@ -213,6 +213,13 @@ class RadCalNetConnector(Connector):
                 fh.write(chunk)
         return str(dest_path)
 
+    def _canonical_kwargs_for(self, target: object) -> dict[str, object]:
+        # Native parse() takes no provenance kwargs, so only the canonical path
+        # has anything to carry: the target's file URL as source_url.
+        if isinstance(target, RadCalNetTarget) and target.url:
+            return {"source_url": target.url}
+        return {}
+
     def parse(self, raw: bytes | str) -> pd.DataFrame:
         """Parse one ``.output`` file, or a ZIP of daily files, into a tidy frame.
 
@@ -361,7 +368,13 @@ def _parse_zip(payload: bytes) -> pd.DataFrame:
                 frames.append(frame)
     if not frames:
         return _empty_native_frame()
-    return pd.concat(frames, ignore_index=True)
+    combined = pd.concat(frames, ignore_index=True)
+    # raw_metadata is per-file; pandas concat can otherwise carry one
+    # constituent frame's attrs onto the multi-file result. Drop it so the zip
+    # path never exposes a misleading per-file passthrough -- only single-file
+    # parse (parse()/parse_output_text on one .output) carries raw_metadata.
+    combined.attrs.pop("raw_metadata", None)
+    return combined
 
 
 def _select_latest_output_entries(names: Iterable[str]) -> list[str]:
@@ -565,10 +578,13 @@ def _parse_output_text(text: str, *, source_file: str | None) -> pd.DataFrame:
 
     rows: list[dict[str, object]] = []
     for time_idx in range(n_times):
-        ancillary_values = {
-            canonical: _apply_fill_and_sign(ancillary_raw[src_key][time_idx])
-            for src_key, canonical in _ANCILLARY_ROWS
-        }
+        # A .output file may omit an ancillary row entirely, or carry fewer
+        # values than there are time columns -> treat a missing cell as no data.
+        ancillary_values = {}
+        for src_key, canonical in _ANCILLARY_ROWS:
+            row_values = ancillary_raw[src_key]
+            cell = row_values[time_idx] if time_idx < len(row_values) else None
+            ancillary_values[canonical] = _apply_fill_and_sign(cell)
         for wavelength in wavelength_order:
             raw_value = _to_float(reflectance_by_wavelength[wavelength][time_idx])
             if raw_value is None or raw_value >= _FILL_THRESHOLD:
@@ -614,7 +630,36 @@ def _parse_output_text(text: str, *, source_file: str | None) -> pd.DataFrame:
 
     frame = pd.DataFrame(rows)
     frame["timestamp"] = pd.to_datetime(frame["timestamp"], utc=True)
+    # Raw-metadata passthrough: the cleaned tidy frame keeps only the 8 named,
+    # transformed ancillary params, but a consumer may need EVERY first-block
+    # metadata row verbatim (e.g. Local, DOY(L), Type, esd) with no fill/sign
+    # transform. Attach them here so a per-file parse is lossless. attrs are
+    # per-frame and do not survive concat -- only single-file parse (parse() on
+    # one .output, or parse_output_text) carries this; the zip path does not.
+    frame.attrs["raw_metadata"] = {
+        "site_id": site_id,
+        "lat": lat,
+        "lon": lon,
+        "alt_m": alt_m,
+        "version": version,
+        "n_times": n_times,
+        "timestamps": list(timestamps),
+        "rows": {label: list(values) for label, values in metadata.items()},
+    }
     return frame
+
+
+def parse_output_text(text: str, *, source_file: str | None = None) -> pd.DataFrame:
+    """Parse one ``.output`` file's text into the native tidy frame (public).
+
+    Same result as :meth:`RadCalNetConnector.parse` on a single ``.output``
+    file, exposed at module level for consumers that hold the raw text and want
+    the per-file frame plus its ``attrs["raw_metadata"]`` passthrough (every
+    first-block metadata row, verbatim). See ``_parse_output_text`` for the
+    value semantics.
+    """
+
+    return _parse_output_text(text, source_file=source_file)
 
 
 def _apply_fill_and_sign(value: float | None) -> float | None:

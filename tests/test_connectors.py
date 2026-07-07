@@ -380,6 +380,9 @@ def test_radcalnet_parse_zip_of_outputs_latest_version_per_day(monkeypatch):
     parsed = connector.parse(buffer.getvalue())
     assert parsed["source_version"].eq("04.05").all()
     assert len(parsed) == 7 * 12  # same shape as the single-file parse
+    # The zip (multi-file) path must NOT expose a per-file raw_metadata attr:
+    # it is meaningless for a concatenated multi-file frame.
+    assert "raw_metadata" not in parsed.attrs
 
 
 def test_radcalnet_parse_canonical_validates_and_maps_fields(monkeypatch):
@@ -413,4 +416,165 @@ def test_radcalnet_parse_canonical_matches_two_step_path(monkeypatch):
 def test_radcalnet_to_canonical_rejects_frame_without_reflectance():
     with pytest.raises(ValueError, match="toa_reflectance"):
         radcalnet_to_canonical(pd.DataFrame({"foo": [1.0]}))
+
+
+# --- Connector.run() target-provenance contract (t_2af776c2) ---------------
+
+from spectraccess.connectors.thredds import ThreddsDataset
+from spectraccess.core.connector import Connector
+
+
+class _RecordingConnector(Connector):
+    """Minimal Connector that records the kwargs each parse path receives."""
+
+    def __init__(self, target):
+        self._target = target
+        self.parse_kwargs = None
+        self.canonical_kwargs = None
+
+    def discover(self, **kwargs):
+        return [self._target]
+
+    def fetch(self, target, **kwargs):
+        return b"raw"
+
+    def parse(self, raw, **kwargs):
+        self.parse_kwargs = kwargs
+        return {"native": True}
+
+    def parse_canonical(self, raw, **kwargs):
+        self.canonical_kwargs = kwargs
+        return {"canonical": True}
+
+    def _parse_kwargs_for(self, target):
+        return {"source_agency": target}
+
+    def _canonical_kwargs_for(self, target):
+        return {"source_agency": target, "source_url": f"u://{target}"}
+
+
+class _BareConnector(Connector):
+    """Overrides neither hook -- proves the default carries no target kwargs."""
+
+    def discover(self, **kwargs):
+        return ["target"]
+
+    def fetch(self, target, **kwargs):
+        return b"raw"
+
+    def parse(self, raw, **kwargs):
+        return kwargs
+
+
+def test_run_carries_target_parse_provenance():
+    connector = _RecordingConnector(target="EUMETSAT")
+    connector.run()
+    assert connector.parse_kwargs == {"source_agency": "EUMETSAT"}
+    assert connector.canonical_kwargs is None
+
+
+def test_run_canonical_uses_canonical_kwargs():
+    connector = _RecordingConnector(target="CMA")
+    connector.run(canonical=True)
+    assert connector.canonical_kwargs == {"source_agency": "CMA", "source_url": "u://CMA"}
+    assert connector.parse_kwargs is None
+
+
+def test_run_parse_kwargs_overrides_target_provenance():
+    connector = _RecordingConnector(target="EUMETSAT")
+    connector.run(parse_kwargs={"source_agency": "OVERRIDE", "extra": 1})
+    assert connector.parse_kwargs == {"source_agency": "OVERRIDE", "extra": 1}
+
+
+def test_run_without_hook_overrides_passes_no_target_kwargs():
+    # Backward compat: a connector that does not override the hooks still runs,
+    # and its parse() sees no target-derived kwargs (as before this contract).
+    assert _BareConnector().run() == {}
+
+
+def test_gsics_run_hooks_extract_thredds_provenance():
+    dataset = ThreddsDataset(
+        name="msg4-seviri",
+        catalog_url="http://host/cat.xml",
+        access_url="http://host/f.nc",
+        source_agency="EUMETSAT",
+    )
+    connector = GSICSConnector()
+    assert connector._parse_kwargs_for(dataset) == {"source_agency": "EUMETSAT"}
+    assert connector._canonical_kwargs_for(dataset) == {
+        "source_agency": "EUMETSAT",
+        "source_url": "http://host/f.nc",
+    }
+    # A bare-string target (fetch-by-URL path) carries no dataclass provenance.
+    assert connector._parse_kwargs_for("http://host/f.nc") == {}
+    assert connector._canonical_kwargs_for("http://host/f.nc") == {}
+
+
+def test_radcalnet_run_canonical_hook_extracts_url(monkeypatch):
+    connector = _radcalnet_connector(monkeypatch)
+    target = RadCalNetTarget(
+        site="GSCN",
+        filename="GSCN01_2025_334_v04.05.output",
+        url=f"{DEFAULT_BASE_URL}GSCN/data/GSCN01_2025_334_v04.05.output",
+        fmt="ascii",
+        kind="output",
+    )
+    assert connector._canonical_kwargs_for(target) == {"source_url": target.url}
+    # Native parse() takes no provenance kwargs, so the native hook stays empty.
+    assert connector._parse_kwargs_for(target) == {}
+
+
+def test_radcalnet_parse_output_text_tolerates_missing_ancillary_rows():
+    # A .output file that omits several of the 8 named ancillary rows (here:
+    # only P/AOD/Type/Zen present, no Azi/Ang/WV/O3/T) must parse, not IndexError.
+    from spectraccess.connectors.radcalnet import parse_output_text
+
+    text = (
+        "Site:\tRVUS00\nLat:\t38.497\nLon:\t-115.690\nAlt:\t1435\n\n"
+        "Year:\t2026\t2026\nDOY(U):\t171\t171\nUTC:\t17:00\t17:30\n"
+        "P:\t855\t855\nAOD:\t0.076\t0.072\nType:\tR\tR\nZen:\t37.9\t32.2\n\n"
+        "400\t0.2528\t0.2534\n410\t0.2529\t0.2537\n"
+    )
+    frame = parse_output_text(text, source_file="RVUS00_2026_171_v04.05.output")
+    assert not frame.empty
+    assert set(frame["wavelength_nm"]) == {400.0, 410.0}
+    # Present ancillary carried; absent ones are NaN, not a crash.
+    assert (frame["aod"].isin([0.076, 0.072])).all()
+    assert frame["water_vapour_g_cm2"].isna().all()
+
+
+def test_radcalnet_parse_output_text_exposes_raw_metadata_passthrough():
+    from spectraccess.connectors.radcalnet import parse_output_text
+
+    frame = parse_output_text(RADCALNET_FIXTURE.read_text(encoding="utf-8"), source_file=RADCALNET_FIXTURE.name)
+    raw = frame.attrs["raw_metadata"]
+
+    # Every first-block metadata row is present verbatim, including rows the
+    # cleaned tidy frame discards entirely (Local, DOY(L), Type, esd).
+    rows = raw["rows"]
+    for label in ("Year", "DOY(U)", "UTC", "DOY(L)", "Local", "Type", "esd", "AOD"):
+        assert label in rows, f"missing raw metadata row {label!r}"
+    # Verbatim, untransformed: Type is the raw string token, AOD is the raw value.
+    assert rows["Type"][0] == "R"
+    assert rows["AOD"][0] == "0.0533"
+    assert raw["site_id"] == "GSCN01"
+    assert raw["version"] == "04.05"
+    assert len(raw["timestamps"]) == raw["n_times"]
+    # Per-time row lengths line up with the time axis.
+    assert len(rows["UTC"]) == raw["n_times"]
+
+
+def test_radcalnet_run_canonical_end_to_end_carries_source_url(monkeypatch, requests_mock):
+    connector = _radcalnet_connector(monkeypatch)
+    filename = "GSCN01_2025_334_v04.05.output"
+    file_url = f"{DEFAULT_BASE_URL}GSCN/data/{filename}"
+    requests_mock.get(f"{DEFAULT_BASE_URL}GSCN/data/", json=[{"name": filename}])
+    requests_mock.get(file_url, content=RADCALNET_FIXTURE.read_bytes())
+
+    canonical = connector.run(site="GSCN", canonical=True)
+
+    assert canonical.attrs["spectraccess_schema_version"] == "1.0"
+    # The discovered target's URL survived the convenience path into provenance.
+    assert (canonical["source_url"] == file_url).all()
+    assert (canonical["site"] == "GSCN01").all()
 
