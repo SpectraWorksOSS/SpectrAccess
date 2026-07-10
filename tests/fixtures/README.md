@@ -15,6 +15,10 @@
   per-wavelength uncertainty values, and an all-fill wavelength (1010nm, both
   blocks) for the fill-uncertainty/fill-reflectance case.
 - Used by: `tests/test_connectors.py` RadCalNet parse/canonical tests.
+- Licence: this is a trimmed real RadCalNet data file redistributed under
+  RadCalNet Data Policy v1.1, which permits redistribution with acknowledgment.
+  We acknowledge RadCalNet and the GONA/GSCN Baotou site operators. This fixture
+  is DATA and is not covered by this repository's Apache-2.0 code licence.
 
 ## `gsics_msg4_seviri_metopb_iasi_nrtc_20260704.nc`
 

@@ -206,6 +206,12 @@ def test_radcalnet_discover_filters_kind_and_date_window(monkeypatch, requests_m
     assert archive_target.kind == "archive"
     assert archive_target.year is None
 
+    windowed_unfiltered = connector.discover(site="GSCN", kind=None, start=(2025, 334), end=(2025, 334))
+    assert [t.filename for t in windowed_unfiltered] == [
+        "GSCN01_2025_334_v04.05.output",
+        "GSCN01_2025_334_v04.05.input",
+    ]
+
 
 def test_radcalnet_discover_nc_lists_datanc_directory(monkeypatch, requests_mock):
     connector = _radcalnet_connector(monkeypatch)
@@ -239,6 +245,25 @@ def test_radcalnet_fetch_401_raises_credentials_error(monkeypatch, requests_mock
     requests_mock.get(target.url, status_code=401)
     with pytest.raises(ValueError, match="RADCALNET_USERNAME"):
         connector.fetch(target)
+
+
+@pytest.mark.parametrize(
+    "target",
+    [
+        "https://example.test/stolen.output",
+        RadCalNetTarget(
+            site="GSCN",
+            filename="stolen.output",
+            url="https://example.test/stolen.output",
+            fmt="ascii",
+        ),
+    ],
+)
+def test_radcalnet_fetch_rejects_off_origin_before_http(monkeypatch, requests_mock, target):
+    connector = _radcalnet_connector(monkeypatch)
+    with pytest.raises(ValueError, match=r"example[.]test.*credentials.*configured RadCalNet origin"):
+        connector.fetch(target)
+    assert requests_mock.request_history == []
 
 
 def test_radcalnet_parse_fixture_row_counts_and_columns(monkeypatch):
@@ -292,6 +317,13 @@ def test_radcalnet_parse_fixture_timestamp_matches_ported_helper(monkeypatch):
     expected = datetime(2025, 1, 1, tzinfo=timezone.utc) + pd.Timedelta(days=333, hours=1, minutes=30)
     row = parsed[(parsed["wavelength_nm"] == 400.0)].sort_values("timestamp").iloc[0]
     assert row["timestamp"] == pd.Timestamp(expected)
+
+
+def test_radcalnet_parse_fixture_preserves_signed_solar_azimuth(monkeypatch):
+    connector = _radcalnet_connector(monkeypatch)
+    parsed = connector.parse(RADCALNET_FIXTURE)
+    wl400 = parsed[parsed["wavelength_nm"] == 400.0].sort_values("timestamp")
+    assert wl400["saa"].tolist()[-3:] == [-172.10, -164.10, -156.45]
 
 
 def test_radcalnet_parse_fixture_uncertainty_status_semantics(monkeypatch):
@@ -363,6 +395,44 @@ def test_radcalnet_parse_negative_reflectance_is_climatological():
     assert positive_row["toa_reflectance"] == pytest.approx(0.22)
 
 
+def test_radcalnet_parse_valid_reflectance_with_fill_uncertainty_is_unknown():
+    from spectraccess.connectors.radcalnet import parse_output_text
+
+    text = (
+        "Site:\tTEST01\nLat:\t10\nLon:\t20\nAlt:\t100\n\n"
+        "Year:\t2025\nDOY(U):\t100\nUTC:\t01:00\nAzi:\t-10\n\n"
+        "500\t0.21\n\nP:\t4.0\n500\t9998\n"
+    )
+    frame = parse_output_text(text, source_file="TEST01_2025_100_v01.00.output")
+    assert len(frame) == 1
+    assert frame.loc[0, "toa_reflectance"] == pytest.approx(0.21)
+    assert frame.loc[0, "toa_reflectance_unc_status"] == "unknown"
+    assert pd.isna(frame.loc[0, "toa_reflectance_unc"])
+
+
+def test_radcalnet_parse_rejects_inconsistent_required_time_axes():
+    from spectraccess.connectors.radcalnet import parse_output_text
+
+    text = (
+        "Site:\tTEST01\nLat:\t10\nLon:\t20\nAlt:\t100\n\n"
+        "Year:\t2025\t2025\nDOY(U):\t100\nUTC:\t01:00\t01:30\n\n"
+        "500\t0.21\t0.22\n"
+    )
+    with pytest.raises(
+        ValueError,
+        match=r"TEST01_2025_100_v01[.]00[.]output: Year=2, DOY[(]U[)]=1, UTC=2",
+    ):
+        parse_output_text(text, source_file="TEST01_2025_100_v01.00.output")
+
+
+def test_radcalnet_parse_bytes_source_file_populates_provenance(monkeypatch):
+    connector = _radcalnet_connector(monkeypatch)
+    filename = "GSCN01_2025_334_v04.05.output"
+    parsed = connector.parse(RADCALNET_FIXTURE.read_bytes(), source_file=filename)
+    assert parsed["source_file"].eq(filename).all()
+    assert parsed["source_version"].eq("04.05").all()
+
+
 def test_radcalnet_parse_zip_of_outputs_latest_version_per_day(monkeypatch):
     import zipfile
     from io import BytesIO
@@ -385,6 +455,28 @@ def test_radcalnet_parse_zip_of_outputs_latest_version_per_day(monkeypatch):
     assert "raw_metadata" not in parsed.attrs
 
 
+def test_radcalnet_parse_zip_rejects_oversized_member(monkeypatch):
+    import zipfile
+    from io import BytesIO
+
+    connector = _radcalnet_connector(monkeypatch)
+    buffer = BytesIO()
+    name = "GSCN01_2025_334_v04.05.output"
+    with zipfile.ZipFile(buffer, "w") as zf:
+        zf.writestr(name, "small")
+
+    original_getinfo = zipfile.ZipFile.getinfo
+
+    def oversized_getinfo(self, member_name):
+        info = original_getinfo(self, member_name)
+        info.file_size = 256 * 1024 * 1024 + 1
+        return info
+
+    monkeypatch.setattr(zipfile.ZipFile, "getinfo", oversized_getinfo)
+    with pytest.raises(ValueError, match=r"GSCN01.*256 MiB safety limit"):
+        connector.parse(buffer.getvalue())
+
+
 def test_radcalnet_parse_canonical_validates_and_maps_fields(monkeypatch):
     connector = _radcalnet_connector(monkeypatch)
     canonical = connector.parse_canonical(
@@ -403,6 +495,12 @@ def test_radcalnet_parse_canonical_validates_and_maps_fields(monkeypatch):
     assert canonical.attrs["spectraccess_schema_version"] == "1.0"
     assert (canonical["unc_status"] == "provided").any()
     assert (canonical["unc_status"] == "prior").any()
+    provided = canonical[canonical["unc_status"] == "provided"]
+    prior = canonical[canonical["unc_status"] == "prior"]
+    assert provided["unc_provider"].eq("source").all()
+    assert prior["unc_provider"].eq("source-climatology").all()
+    assert provided["unc_k"].isna().all()
+    assert prior["unc_k"].isna().all()
 
 
 def test_radcalnet_parse_canonical_matches_two_step_path(monkeypatch):
@@ -510,7 +608,7 @@ def test_gsics_run_hooks_extract_thredds_provenance():
     assert connector._canonical_kwargs_for("http://host/f.nc") == {}
 
 
-def test_radcalnet_run_canonical_hook_extracts_url(monkeypatch):
+def test_radcalnet_run_hooks_extract_provenance(monkeypatch):
     connector = _radcalnet_connector(monkeypatch)
     target = RadCalNetTarget(
         site="GSCN",
@@ -519,9 +617,11 @@ def test_radcalnet_run_canonical_hook_extracts_url(monkeypatch):
         fmt="ascii",
         kind="output",
     )
-    assert connector._canonical_kwargs_for(target) == {"source_url": target.url}
-    # Native parse() takes no provenance kwargs, so the native hook stays empty.
-    assert connector._parse_kwargs_for(target) == {}
+    assert connector._canonical_kwargs_for(target) == {
+        "source_url": target.url,
+        "source_file": target.filename,
+    }
+    assert connector._parse_kwargs_for(target) == {"source_file": target.filename}
 
 
 def test_radcalnet_parse_output_text_tolerates_missing_ancillary_rows():
@@ -557,6 +657,10 @@ def test_radcalnet_parse_output_text_exposes_raw_metadata_passthrough():
     # Verbatim, untransformed: Type is the raw string token, AOD is the raw value.
     assert rows["Type"][0] == "R"
     assert rows["AOD"][0] == "0.0533"
+    uncertainty_rows = raw["uncertainty_rows"]
+    assert uncertainty_rows["P"][0] == "4.000"
+    assert uncertainty_rows["AOD"][0] == "0.0027"
+    assert uncertainty_rows["Ang"][-1] == "0.0772"
     assert raw["site_id"] == "GSCN01"
     assert raw["version"] == "04.05"
     assert len(raw["timestamps"]) == raw["n_times"]
@@ -577,4 +681,19 @@ def test_radcalnet_run_canonical_end_to_end_carries_source_url(monkeypatch, requ
     # The discovered target's URL survived the convenience path into provenance.
     assert (canonical["source_url"] == file_url).all()
     assert (canonical["site"] == "GSCN01").all()
+    assert canonical["source_file"].eq(filename).all()
+    assert canonical["source_version"].eq("04.05").all()
+
+
+def test_radcalnet_run_native_end_to_end_carries_source_file(monkeypatch, requests_mock):
+    connector = _radcalnet_connector(monkeypatch)
+    filename = "GSCN01_2025_334_v04.05.output"
+    file_url = f"{DEFAULT_BASE_URL}GSCN/data/{filename}"
+    requests_mock.get(f"{DEFAULT_BASE_URL}GSCN/data/", json=[{"name": filename}])
+    requests_mock.get(file_url, content=RADCALNET_FIXTURE.read_bytes())
+
+    native = connector.run(site="GSCN", canonical=False)
+
+    assert native["source_file"].eq(filename).all()
+    assert native["source_version"].eq("04.05").all()
 
