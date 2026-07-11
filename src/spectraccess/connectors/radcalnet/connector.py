@@ -36,6 +36,7 @@ from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from pathlib import Path
 from typing import Iterable
+from urllib.parse import urlsplit
 
 import pandas as pd
 
@@ -50,6 +51,7 @@ DEFAULT_BASE_URL = "https://www.radcalnet.org/api/json/"
 # codes (9999 no data, 9998 not processed to TOA reflectance, 9997 anomalous
 # atmosphere, 9996 anomalous surface, 9995 cloudy) is used.
 _FILL_THRESHOLD = 9995.0
+_MAX_ZIP_MEMBER_SIZE = 256 * 1024 * 1024
 
 _OUTPUT_FILENAME_RE = re.compile(
     r"^(?P<site_id>[A-Z0-9]+)_(?P<year>\d{4})_(?P<doy>\d{3})_v(?P<version>\d{2}[.]\d{2})"
@@ -152,7 +154,9 @@ class RadCalNetConnector(Connector):
         files that don't match the daily-filename pattern (e.g.
         ``GSCN_archive.nc``). ``start``/``end`` filter by (year, doy) window,
         inclusive on both ends -- accepts a ``(year, doy)`` tuple or a
-        ``datetime`` (converted via its UTC year/day-of-year).
+        ``datetime`` (converted via its UTC year/day-of-year). When either
+        bound is supplied, entries without a parsed year/day-of-year are
+        excluded because their membership in the window is unknown.
         """
 
         sites = [site] if site else self.sites()
@@ -174,6 +178,8 @@ class RadCalNetConnector(Connector):
                     year = doy = version = None
 
                 if kind is not None and target_kind != kind:
+                    continue
+                if (start_yd is not None or end_yd is not None) and year is None:
                     continue
                 if start_yd is not None and year is not None and (year, doy) < start_yd:
                     continue
@@ -198,6 +204,17 @@ class RadCalNetConnector(Connector):
 
     def fetch(self, target: RadCalNetTarget, *, dest: str | Path | None = None, **_kwargs: object) -> bytes | str:
         url = target.url if isinstance(target, RadCalNetTarget) else str(target)
+        requested_origin = urlsplit(url)
+        configured_origin = urlsplit(self.base_url)
+        if (requested_origin.scheme, requested_origin.netloc) != (
+            configured_origin.scheme,
+            configured_origin.netloc,
+        ):
+            offending_host = requested_origin.hostname or "<missing host>"
+            raise ValueError(
+                f"refusing to fetch off-origin RadCalNet URL host {offending_host!r}: "
+                "credentials are only ever sent to the configured RadCalNet origin"
+            )
         response = self._session.get(url, timeout=self.timeout, stream=dest is not None)
         if response.status_code == 401:
             raise _credential_error()
@@ -213,14 +230,17 @@ class RadCalNetConnector(Connector):
                 fh.write(chunk)
         return str(dest_path)
 
-    def _canonical_kwargs_for(self, target: object) -> dict[str, object]:
-        # Native parse() takes no provenance kwargs, so only the canonical path
-        # has anything to carry: the target's file URL as source_url.
-        if isinstance(target, RadCalNetTarget) and target.url:
-            return {"source_url": target.url}
+    def _parse_kwargs_for(self, target: object) -> dict[str, object]:
+        if isinstance(target, RadCalNetTarget):
+            return {"source_file": target.filename}
         return {}
 
-    def parse(self, raw: bytes | str) -> pd.DataFrame:
+    def _canonical_kwargs_for(self, target: object) -> dict[str, object]:
+        if isinstance(target, RadCalNetTarget):
+            return {"source_url": target.url, "source_file": target.filename}
+        return {}
+
+    def parse(self, raw: bytes | str, *, source_file: str | None = None) -> pd.DataFrame:
         """Parse one ``.output`` file, or a ZIP of daily files, into a tidy frame.
 
         One row per (time, wavelength); see module docstring for the value
@@ -231,16 +251,18 @@ class RadCalNetConnector(Connector):
         if _looks_like_zip(payload):
             return _parse_zip(payload)
         text = payload.decode("utf-8", errors="replace")
-        return _parse_output_text(text, source_file=_guess_source_file(raw))
+        effective_source_file = source_file if source_file is not None else _guess_source_file(raw)
+        return _parse_output_text(text, source_file=effective_source_file)
 
     def parse_canonical(
         self,
         raw: bytes | str,
         *,
         source_url: str | None = None,
+        source_file: str | None = None,
         retrieved_at=None,
     ) -> pd.DataFrame:
-        native = self.parse(raw)
+        native = self.parse(raw, source_file=source_file)
         return to_canonical(native, source_url=source_url, retrieved_at=retrieved_at)
 
 
@@ -361,6 +383,12 @@ def _parse_zip(payload: bytes) -> pd.DataFrame:
         names = zf.namelist()
         selected = _select_latest_output_entries(names)
         for name in selected:
+            member = zf.getinfo(name)
+            if member.file_size > _MAX_ZIP_MEMBER_SIZE:
+                raise ValueError(
+                    f"RadCalNet ZIP member {name!r} has uncompressed size "
+                    f"{member.file_size} bytes, exceeding the 256 MiB safety limit"
+                )
             text = zf.read(name).decode("utf-8", errors="replace")
             source_file = Path(name).name
             frame = _parse_output_text(text, source_file=source_file)
@@ -471,8 +499,10 @@ def _parse_output_text(text: str, *, source_file: str | None) -> pd.DataFrame:
       ``unc_value=abs(u)``; fill or absent -> ``unc_status="unknown"``,
       ``unc_value=None``. ``unc_k`` is always None (R2 does not state a
       coverage factor; G4 is the uncertainty-methodology authority).
-      Ancillary columns (P/T/WV/O3/AOD/Ang/Zen/Azi) apply the same fill->NaN,
-      negative->abs(v) rule with no per-ancillary climatology flag in v1.
+      Ancillary columns P/T/WV/O3/AOD/Ang/Zen apply fill->NaN and
+      negative->abs(v), with no per-ancillary climatology flag in v1. ``Azi``
+      is different: fill->NaN still applies, but its valid signed azimuth
+      (-180..180) is preserved.
     """
 
     lines = text.splitlines()
@@ -543,7 +573,14 @@ def _parse_output_text(text: str, *, source_file: str | None) -> pd.DataFrame:
     years = [int(v) for v in metadata.get("Year", [])]
     doys = [int(v) for v in metadata.get("DOY(U)", [])]
     utc_times = metadata.get("UTC", [])
-    n_times = min(len(years), len(doys), len(utc_times))
+    time_axis_counts = (len(years), len(doys), len(utc_times))
+    if len(set(time_axis_counts)) != 1:
+        raise ValueError(
+            "RadCalNet .output time-axis length mismatch "
+            f"for {source_file}: Year={time_axis_counts[0]}, "
+            f"DOY(U)={time_axis_counts[1]}, UTC={time_axis_counts[2]}"
+        )
+    n_times = len(years)
     if n_times == 0:
         raise ValueError(f"RadCalNet .output file missing Year/DOY(U)/UTC rows: {source_file}")
 
@@ -584,13 +621,17 @@ def _parse_output_text(text: str, *, source_file: str | None) -> pd.DataFrame:
         for src_key, canonical in _ANCILLARY_ROWS:
             row_values = ancillary_raw[src_key]
             cell = row_values[time_idx] if time_idx < len(row_values) else None
-            ancillary_values[canonical] = _apply_fill_and_sign(cell)
+            ancillary_values[canonical] = (
+                _apply_fill_only(cell) if src_key == "Azi" else _apply_fill_and_sign(cell)
+            )
         for wavelength in wavelength_order:
             raw_value = _to_float(reflectance_by_wavelength[wavelength][time_idx])
             if raw_value is None or raw_value >= _FILL_THRESHOLD:
                 continue  # fill reflectance -> skip the row entirely (no value, no row)
             is_climatological = raw_value < 0
             value = abs(raw_value)
+            # Deliberate ported semantics: RefCal's legacy predicate silently
+            # drops out-of-range reflectance, and byte-parity requires it.
             if not (0.0 <= value <= 1.0):
                 continue
 
@@ -645,6 +686,7 @@ def _parse_output_text(text: str, *, source_file: str | None) -> pd.DataFrame:
         "n_times": n_times,
         "timestamps": list(timestamps),
         "rows": {label: list(values) for label, values in metadata.items()},
+        "uncertainty_rows": {label: list(values) for label, values in uncertainty_metadata.items()},
     }
     return frame
 
@@ -666,3 +708,9 @@ def _apply_fill_and_sign(value: float | None) -> float | None:
     if value is None or value >= _FILL_THRESHOLD:
         return None
     return abs(value)
+
+
+def _apply_fill_only(value: float | None) -> float | None:
+    if value is None or value >= _FILL_THRESHOLD:
+        return None
+    return value

@@ -29,9 +29,16 @@ Also cite the RadCalNet reference publication:
 
 A RadCalNet portal account is free, self-service registration (contact:
 admin-radcalnet@magellium.fr for account issues). spectrAccess is bring-your-
-own-credentials: it ships no RadCalNet data and no credentials of its own.
-Set `RADCALNET_USERNAME` / `RADCALNET_PASSWORD` in your own environment; the
+own-credentials: it ships no RadCalNet data beyond one trimmed test fixture
+(see `tests/fixtures/README.md`) and no credentials of its own. Set
+`RADCALNET_USERNAME` / `RADCALNET_PASSWORD` in your own environment; the
 connector never logs or echoes these values.
+
+That fixture is a trimmed real RadCalNet file
+redistributed under RadCalNet Data Policy v1.1, which permits redistribution
+with acknowledgment. We acknowledge RadCalNet and the GONA/GSCN Baotou site
+operators. The fixture is DATA and is not covered by the repository's
+Apache-2.0 code licence.
 
 ## Format and API authority
 
