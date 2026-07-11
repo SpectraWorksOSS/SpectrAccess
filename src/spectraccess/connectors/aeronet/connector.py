@@ -35,6 +35,12 @@ _REQUIRED_COLS = (_COL_DATE, _COL_TIME, _COL_PW, _COL_SITE)
 _LEVEL_FLAG = {"L2.0": "AOD20", "L1.5": "AOD15"}
 
 NATIVE_COLUMNS = [
+    # observation_index is the ordinal of the source CSV data row. Every band
+    # row expanded from the same observation shares it, so a consumer can
+    # regroup back to one-record-per-CSV-row identity (NOT timestamp -- two
+    # observations could in principle share a timestamp; grouping on timestamp
+    # would silently merge them).
+    "observation_index",
     "timestamp", "site", "latitude", "longitude", "elevation_m", "data_level",
     "wavelength_nm", "aod", "pw_cm", "angstrom_440_870",
 ]
@@ -50,6 +56,7 @@ class AeronetSiteMismatchError(ValueError):
 
 def _empty_native_frame() -> pd.DataFrame:
     return pd.DataFrame({
+        "observation_index": pd.Series([], dtype="int64"),
         "timestamp": pd.Series([], dtype="datetime64[ns, UTC]"),
         "site": pd.Series([], dtype="object"),
         "latitude": pd.Series([], dtype="float64"),
@@ -129,7 +136,9 @@ def parse_aeronet_csv(
         raise AeronetSchemaError("AERONET header contains fewer than 2 recognised AOD bands")
 
     rows: list[dict[str, object]] = []
-    for source_row in reader:
+    # enumerate gives each source CSV data row a stable ordinal so all its band
+    # rows regroup to one observation identity downstream (see NATIVE_COLUMNS).
+    for observation_index, source_row in enumerate(reader):
         site = source_row.get(_COL_SITE)
         if requested_site is not None and site != requested_site:
             raise AeronetSiteMismatchError(
@@ -152,6 +161,7 @@ def parse_aeronet_csv(
             if pd.isna(aod) or aod <= 0:
                 continue
             rows.append({
+                "observation_index": observation_index,
                 "timestamp": timestamp, "site": site, "latitude": latitude,
                 "longitude": longitude, "elevation_m": elevation, "data_level": data_level,
                 "wavelength_nm": float(nm), "aod": aod, "pw_cm": pw_cm,
@@ -186,6 +196,8 @@ class AeronetConnector(Connector):
             raise ValueError(f"level must be one of {sorted(_LEVEL_FLAG)}")
         start_utc = start.astimezone(timezone.utc) if start.tzinfo else start.replace(tzinfo=timezone.utc)
         end_utc = end.astimezone(timezone.utc) if end.tzinfo else end.replace(tzinfo=timezone.utc)
+        if end_utc < start_utc:
+            raise ValueError(f"end must be >= start (got start={start_utc}, end={end_utc})")
         params = {
             "site": site, "year": start_utc.year, "month": start_utc.month, "day": start_utc.day,
             "year2": end_utc.year, "month2": end_utc.month, "day2": end_utc.day,
@@ -263,7 +275,10 @@ def to_canonical(native: pd.DataFrame, *, source_url=None, retrieved_at=None) ->
         output.update({"wavelength_nm": float(row["wavelength_nm"]), "quantity": "aerosol_optical_depth", "value": float(row["aod"]), "units": "1"})
         rows.append(output)
 
-    pw_rows = native.loc[native["pw_cm"].notna()].drop_duplicates(subset=["timestamp"])
+    # One PW row per observation (keyed on observation_index, not timestamp:
+    # two sites -- or two observations -- can share a timestamp, and keying on
+    # timestamp alone would silently drop one observation's PW).
+    pw_rows = native.loc[native["pw_cm"].notna()].drop_duplicates(subset=["observation_index"])
     for _, row in pw_rows.iterrows():
         output = base(row)
         output.update({"wavelength_nm": float("nan"), "quantity": "precipitable_water", "value": float(row["pw_cm"]), "units": "cm"})

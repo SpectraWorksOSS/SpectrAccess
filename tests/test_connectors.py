@@ -33,6 +33,7 @@ AERONET_ISPRA = FIXTURES / "aeronet" / "Ispra_2024_07_15_L2.0.csv"
 def test_aeronet_parse_granada_fixture():
     frame = parse_aeronet_csv(AERONET_GRANADA.read_text(encoding="utf-8"), requested_site="Granada")
     assert set(frame.columns) == {
+        "observation_index",
         "timestamp", "site", "latitude", "longitude", "elevation_m", "data_level",
         "wavelength_nm", "aod", "pw_cm", "angstrom_440_870",
     }
