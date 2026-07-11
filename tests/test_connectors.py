@@ -14,10 +14,124 @@ from spectraccess.connectors.radcalnet.connector import (
     DEFAULT_BASE_URL,
     to_canonical as radcalnet_to_canonical,
 )
+from spectraccess.connectors.aeronet import (
+    AeronetConnector,
+    AeronetSchemaError,
+    AeronetSiteMismatchError,
+    interpolate_aod_550,
+    parse_aeronet_csv,
+    to_canonical as aeronet_to_canonical,
+)
 
 
 FIXTURES = Path(__file__).parent / "fixtures"
 RADCALNET_FIXTURE = FIXTURES / "radcalnet" / "GSCN01_2025_334_v04.05.output"
+AERONET_GRANADA = FIXTURES / "aeronet" / "Granada_2024_06_15_L2.0.csv"
+AERONET_ISPRA = FIXTURES / "aeronet" / "Ispra_2024_07_15_L2.0.csv"
+
+
+def test_aeronet_parse_granada_fixture():
+    frame = parse_aeronet_csv(AERONET_GRANADA.read_text(encoding="utf-8"), requested_site="Granada")
+    assert set(frame.columns) == {
+        "observation_index",
+        "timestamp", "site", "latitude", "longitude", "elevation_m", "data_level",
+        "wavelength_nm", "aod", "pw_cm", "angstrom_440_870",
+    }
+    assert {500.0, 675.0} <= set(frame["wavelength_nm"])
+    assert frame["pw_cm"].iloc[0] == pytest.approx(2.12, abs=0.01)
+    assert str(frame["timestamp"].dt.tz) == "UTC"
+    assert frame["site"].eq("Granada").all()
+
+
+def test_aeronet_parse_ispra_fixture_seaprism_bands():
+    frame = parse_aeronet_csv(AERONET_ISPRA.read_text(encoding="utf-8"), requested_site="Ispra")
+    assert {510.0, 560.0} <= set(frame["wavelength_nm"])
+    assert 500.0 not in set(frame["wavelength_nm"])
+    assert frame["pw_cm"].notna().all()
+
+
+def test_aeronet_interpolation_uses_instrument_specific_brackets():
+    for fixture, site, expected in (
+        (AERONET_ISPRA, "Ispra", (510, 560)),
+        (AERONET_GRANADA, "Granada", (500, 675)),
+    ):
+        frame = parse_aeronet_csv(fixture.read_text(encoding="utf-8"), requested_site=site)
+        observation = frame[frame["timestamp"] == frame["timestamp"].iloc[0]]
+        bands = dict(zip(observation["wavelength_nm"].astype(int), observation["aod"]))
+        result = interpolate_aod_550(bands)
+        assert result is not None
+        value, lo, hi = result
+        assert (lo, hi) == expected
+        assert min(bands[lo], bands[hi]) <= value <= max(bands[lo], bands[hi])
+
+
+def _aeronet_csv(header: str, row: str) -> str:
+    return f"metadata\n{header}\n{row}\n"
+
+
+def test_aeronet_rejects_site_mismatch():
+    text = _aeronet_csv(
+        "Date(dd:mm:yyyy),Time(hh:mm:ss),Precipitable_Water(cm),AERONET_Site,AOD_500nm,AOD_675nm",
+        "01:01:2024,12:00:00,1.2,Wrong_Site,0.1,0.08",
+    )
+    with pytest.raises(AeronetSiteMismatchError):
+        parse_aeronet_csv(text, requested_site="Right_Site")
+
+
+def test_aeronet_rejects_missing_required_column_and_insufficient_bands():
+    missing_pw = _aeronet_csv(
+        "Date(dd:mm:yyyy),Time(hh:mm:ss),AERONET_Site,AOD_500nm,AOD_675nm",
+        "01:01:2024,12:00:00,Site,0.1,0.08",
+    )
+    with pytest.raises(AeronetSchemaError, match="Precipitable_Water"):
+        parse_aeronet_csv(missing_pw)
+
+    one_band = _aeronet_csv(
+        "Date(dd:mm:yyyy),Time(hh:mm:ss),Precipitable_Water(cm),AERONET_Site,AOD_500nm",
+        "01:01:2024,12:00:00,1.2,Site,0.1",
+    )
+    with pytest.raises(AeronetSchemaError, match="fewer than 2"):
+        parse_aeronet_csv(one_band)
+
+
+def test_aeronet_discover_and_fetch(requests_mock):
+    connector = AeronetConnector()
+    target = connector.discover(
+        site="Granada", start=datetime(2024, 6, 15), end=datetime(2024, 6, 15), level="L2.0"
+    )[0]
+    assert "site=Granada" in target.url
+    assert "year=2024" in target.url
+    assert "AOD20=1" in target.url
+    assert "if_no_html=1" in target.url
+    requests_mock.get(target.url, text=AERONET_GRANADA.read_text(encoding="utf-8"))
+    assert connector.fetch(target).startswith(b"AERONET Data Download")
+    assert "Authorization" not in requests_mock.last_request.headers
+
+
+def test_aeronet_to_canonical_includes_aod_and_deduplicated_pw():
+    native = parse_aeronet_csv(AERONET_GRANADA.read_text(encoding="utf-8"), requested_site="Granada")
+    canonical = aeronet_to_canonical(native)
+    assert canonical.attrs["spectraccess_schema_version"] == "1.0"
+    aod = canonical[canonical["quantity"] == "aerosol_optical_depth"]
+    assert aod["unc_status"].eq("unknown").all()
+    assert aod["unc_value"].isna().all()
+    pw = canonical[canonical["quantity"] == "precipitable_water"]
+    assert len(pw) == native["timestamp"].nunique()
+    assert pw["units"].eq("cm").all()
+    assert canonical["source"].eq("aeronet").all()
+
+
+def test_aeronet_run_canonical_end_to_end_carries_source_url(requests_mock):
+    connector = AeronetConnector()
+    target = connector.discover(
+        site="Granada", start=datetime(2024, 6, 15), end=datetime(2024, 6, 15)
+    )[0]
+    requests_mock.get(target.url, text=AERONET_GRANADA.read_text(encoding="utf-8"))
+    canonical = connector.run(
+        site="Granada", start=datetime(2024, 6, 15), end=datetime(2024, 6, 15), canonical=True
+    )
+    assert canonical.attrs["spectraccess_schema_version"] == "1.0"
+    assert canonical["source_url"].eq(target.url).all()
 
 
 def test_gsics_parse_fixture():
