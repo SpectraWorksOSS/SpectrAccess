@@ -1,5 +1,24 @@
 # Fixture provenance
 
+## `sentinel2_cdse/S2B_T31UFT_20240501_feature.json`
+
+- Source: public CDSE OData catalogue feature for product ID
+  `d085d39b-03e2-486d-ae2a-0c8deca9bdc0`, queried live through
+  `cdsetool==0.3.1` on 2026-07-14 with expanded attributes.
+- Product: Sentinel-2B MSI L1C, tile 31UFT, sensing time
+  2024-05-01T10:36:19.024Z. The full 756,691,750-byte SAFE was **not**
+  downloaded or checked in; this hermetic fixture contains only the public
+  catalogue metadata needed to prove discovery/parity/provenance behavior.
+- Trimmed: retained identity, size, availability, source path, checksums,
+  content date, exact provider footprint WKT, and the attributes consumed by
+  the connector. Large unused attribute strings were omitted.
+- Licence: Sentinel data, including its metadata, is available on a free,
+  full and open basis under the Sentinel Data Legal Notice linked from the
+  CDSE terms. This fixture is Copernicus DATA, not Apache-2.0 code. Credit:
+  contains modified Copernicus Sentinel data (2024), processed by ESA.
+- Terms: https://dataspace.copernicus.eu/terms-and-conditions
+- Used by: `tests/test_sentinel2_cdse.py`.
+
 ## `radcalnet/GSCN01_2025_334_v04.05.output`
 
 - Source: fetched live from `api/json/GSCN/data/GSCN01_2025_334_v04.05.output`

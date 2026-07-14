@@ -15,7 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        connector: [gsics, modis_viirs_cal, radcalnet]
+        connector: [gsics, modis_viirs_cal, radcalnet, sentinel2_cdse]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
