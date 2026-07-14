@@ -21,6 +21,12 @@ Sentinel-2 discovery and download through CDSETool:
 pip install "spectraccess[cdse]"
 ```
 
+For EMIT L1B/L2A discovery and download through NASA earthaccess:
+
+```bash
+pip install "spectraccess[emit]"
+```
+
 ## Quickstart
 
 ```python
@@ -42,6 +48,7 @@ print(table.head())
 | MODIS/VIIRS calibration LUT | VIIRS connector shape available; NOAA STAR F-factor THREDDS URL pending verification; MODIS planned | None for public VIIRS THREDDS; MODIS source design pending |
 | RadCalNet | Available (official JSON API; live-verified) | Free portal account; HTTP Basic auth via BYO credentials |
 | Sentinel-2 CDSE | Available (thin adapter over maintained `cdsetool`; public discovery, BYO-credential download) | None for catalogue discovery; free CDSE account for product download |
+| NASA EMIT L1B/L2A | Available (thin adapter over maintained `earthaccess`; CMR metadata live-verified) | None for CMR discovery; free Earthdata Login for protected NetCDF download |
 
 NOAA/NESDIS GSICS products are also mirrored on the EUMETSAT collaboration server's master THREDDS catalog (`nesdisProducts.xml`), so some NESDIS product families may already be reachable via the EUMETSAT connector default even while the canonical NOAA STAR host is down.
 
@@ -88,6 +95,14 @@ with null `unc_value`, `unc_k`, and `unc_provider`. Product identity, footprint,
 processing version, catalogue/download URLs, and the exact provider metadata
 remain attached as provenance. spectrAccess does not parse SAFE pixels or
 reimplement CDSE transport; those stay with CDSETool and downstream consumers.
+
+The EMIT connector likewise keeps the multi-gigabyte science cubes opaque. Its
+canonical output covers only source-provided scene metadata (cloud cover and
+solar angles), each labelled `unc_status="unknown"` because CMR does not publish
+an uncertainty for those metadata values. Exact collection/native IDs, footprint,
+orbit/scene, asset URLs, byte sizes, and SHA-512 checksums remain in the target
+provenance. Cube/GLT interpretation and scientific admission are deliberately
+downstream concerns; connector availability is not a claim-grade endorsement.
 
 Call `spectraccess.core.schema.validate(df)` to check a frame against the schema; it raises
 `SchemaError` naming every violation found. Extra, connector-specific columns are always
