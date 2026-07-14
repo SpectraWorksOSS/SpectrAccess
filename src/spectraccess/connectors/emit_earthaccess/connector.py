@@ -175,8 +175,9 @@ class EMITEarthaccessConnector(Connector):
     ) -> str:
         """Download exactly one selected NetCDF asset through earthaccess.
 
-        ``asset`` accepts ``primary``, ``uncertainty``, ``mask``, or an exact
-        filename. One explicit file prevents accidental whole-granule transfer.
+        ``asset`` accepts ``primary``, ``uncertainty``, ``mask``,
+        ``observation``, or an exact filename. One explicit file prevents
+        accidental whole-granule transfer.
         """
         filename, url = _select_asset(target, asset)
         parsed_url = urlparse(url)
@@ -461,10 +462,12 @@ def _select_asset(target: EMITTarget, selector: str) -> tuple[str, str]:
         matches = [name for name, upper in upper_names.items() if "UNCERT" in upper]
     elif selector == "mask":
         matches = [name for name, upper in upper_names.items() if "_MASK_" in upper]
+    elif selector == "observation":
+        matches = [name for name, upper in upper_names.items() if "_OBS_" in upper]
     elif selector == "primary":
         matches = [
             name for name, upper in upper_names.items()
-            if "UNCERT" not in upper and "_MASK_" not in upper
+            if "UNCERT" not in upper and "_MASK_" not in upper and "_OBS_" not in upper
         ]
     else:
         matches = []

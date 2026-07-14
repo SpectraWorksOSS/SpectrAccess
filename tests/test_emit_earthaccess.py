@@ -238,6 +238,23 @@ def test_fetch_rejects_off_origin_and_checksum_mismatch(monkeypatch, tmp_path):
         EMITEarthaccessConnector().fetch(target, dest=tmp_path)
 
 
+def test_l1b_primary_selector_does_not_ambiguously_include_observation_companion():
+    targets = {
+        "EMIT_L1B_RAD_001_scene.nc": "https://data.lpdaac.earthdatacloud.nasa.gov/x/rad.nc",
+        "EMIT_L1B_OBS_001_scene.nc": "https://data.lpdaac.earthdatacloud.nasa.gov/x/obs.nc",
+    }
+    l2_target = module._target_from_granule(_granule(), expected_product="EMITL2ARFL")
+    l1_target = replace(l2_target, collection="EMITL1BRAD", assets=targets)
+    assert module._select_asset(l1_target, "primary") == (
+        "EMIT_L1B_RAD_001_scene.nc",
+        targets["EMIT_L1B_RAD_001_scene.nc"],
+    )
+    assert module._select_asset(l1_target, "observation") == (
+        "EMIT_L1B_OBS_001_scene.nc",
+        targets["EMIT_L1B_OBS_001_scene.nc"],
+    )
+
+
 def test_parse_and_canonical_keep_product_provenance_and_unknown_uncertainty(monkeypatch):
     targets, _calls = _discover(monkeypatch)
     target = targets[0]
