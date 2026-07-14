@@ -21,6 +21,12 @@ Sentinel-2 discovery and download through CDSETool:
 pip install "spectraccess[cdse]"
 ```
 
+For CAMS EAC4 access through ECMWF's maintained CDS API client:
+
+```bash
+pip install "spectraccess[cams]"
+```
+
 ## Quickstart
 
 ```python
@@ -42,6 +48,7 @@ print(table.head())
 | MODIS/VIIRS calibration LUT | VIIRS connector shape available; NOAA STAR F-factor THREDDS URL pending verification; MODIS planned | None for public VIIRS THREDDS; MODIS source design pending |
 | RadCalNet | Available (official JSON API; live-verified) | Free portal account; HTTP Basic auth via BYO credentials |
 | Sentinel-2 CDSE | Available (thin adapter over maintained `cdsetool`; public discovery, BYO-credential download) | None for catalogue discovery; free CDSE account for product download |
+| CAMS EAC4 / JASMIN | Available (JASMIN cache access plus thin ADS adapter over maintained `cdsapi`) | None for JASMIN; free ADS account/token for ADS and automatic fallback |
 
 NOAA/NESDIS GSICS products are also mirrored on the EUMETSAT collaboration server's master THREDDS catalog (`nesdisProducts.xml`), so some NESDIS product families may already be reachable via the EUMETSAT connector default even while the canonical NOAA STAR host is down.
 
@@ -88,6 +95,15 @@ with null `unc_value`, `unc_k`, and `unc_provider`. Product identity, footprint,
 processing version, catalogue/download URLs, and the exact provider metadata
 remain attached as provenance. spectrAccess does not parse SAFE pixels or
 reimplement CDSE transport; those stay with CDSETool and downstream consumers.
+
+The CAMS connector returns a `CAMSResult` that names `base_dir` (the directory
+containing the date subtree) and `date_dir` (the `YYYY_MM_DD` subtree)
+separately. This is an intentional typed contract: consumers such as SIAC that
+append the date must use `base_dir`, while format converters can work inside
+`date_dir`. `requested_source`, `resolved_source`, dataset URL, retrieval time,
+cache status, and exact local assets are retained as native provenance. The
+connector retrieves source assets only; atmospheric-correction and
+model-specific format conversion remain downstream responsibilities.
 
 Call `spectraccess.core.schema.validate(df)` to check a frame against the schema; it raises
 `SchemaError` naming every violation found. Extra, connector-specific columns are always

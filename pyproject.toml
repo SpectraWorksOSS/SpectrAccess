@@ -43,12 +43,18 @@ refcal = []
 cdse = [
   "cdsetool>=0.3.1,<0.4",
 ]
+cams = [
+  # ECMWF's maintained client for CDS/ADS retrieval. The connector keeps the
+  # provider transport here instead of freezing the ADS REST lifecycle.
+  "cdsapi>=0.7.7,<0.8",
+]
 test = [
   "pytest>=8",
   "requests-mock>=1.11",
   # Exercise the real maintained-client adapter in fixture tests. Runtime
   # users who need this connector install spectraccess[cdse].
   "cdsetool>=0.3.1,<0.4",
+  "cdsapi>=0.7.7,<0.8",
 ]
 
 [tool.pytest.ini_options]
