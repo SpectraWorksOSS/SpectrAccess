@@ -27,6 +27,12 @@ For CAMS EAC4 access through ECMWF's maintained CDS API client:
 pip install "spectraccess[cams]"
 ```
 
+For Landsat Collection-2 discovery and download through EODAG/USGS:
+
+```bash
+pip install "spectraccess[landsat]"
+```
+
 ## Quickstart
 
 ```python
@@ -49,6 +55,7 @@ print(table.head())
 | RadCalNet | Available (official JSON API; live-verified) | Free portal account; HTTP Basic auth via BYO credentials |
 | Sentinel-2 CDSE | Available (thin adapter over maintained `cdsetool`; public discovery, BYO-credential download) | None for catalogue discovery; free CDSE account for product download |
 | CAMS EAC4 / JASMIN | Available (JASMIN cache access plus thin ADS adapter over maintained `cdsapi`) | None for JASMIN; free ADS account/token for ADS and automatic fallback |
+| Landsat 8/9 Collection 2 L1TP | Available (thin adapter over maintained EODAG USGS plugin; preserves tier and WRS-2 identity) | Free USGS EarthExplorer account and M2M application token via BYO credentials |
 
 NOAA/NESDIS GSICS products are also mirrored on the EUMETSAT collaboration server's master THREDDS catalog (`nesdisProducts.xml`), so some NESDIS product families may already be reachable via the EUMETSAT connector default even while the canonical NOAA STAR host is down.
 
@@ -104,6 +111,13 @@ append the date must use `base_dir`, while format converters can work inside
 cache status, and exact local assets are retained as native provenance. The
 connector retrieves source assets only; atmospheric-correction and
 model-specific format conversion remain downstream responsibilities.
+
+The Landsat connector applies the same boundary to Collection-2 L1TP products:
+EODAG owns USGS search, authentication, retries, and download transport;
+spectrAccess preserves the provider product ID, display ID, collection number,
+tier (`T1`, `T2`, or `RT`), WRS-2 path/row, footprint, provider metadata, and a
+stable cache identifier. Its canonical row describes only provider scene cloud
+cover, with unknown uncertainty; archive pixels remain a downstream concern.
 
 Call `spectraccess.core.schema.validate(df)` to check a frame against the schema; it raises
 `SchemaError` naming every violation found. Extra, connector-specific columns are always

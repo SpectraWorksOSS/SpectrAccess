@@ -48,6 +48,9 @@ cams = [
   # provider transport here instead of freezing the ADS REST lifecycle.
   "cdsapi>=0.7.7,<0.8",
 ]
+landsat = [
+  "eodag[usgs]>=4.3,<5",
+]
 test = [
   "pytest>=8",
   "requests-mock>=1.11",
@@ -55,6 +58,7 @@ test = [
   # users who need this connector install spectraccess[cdse].
   "cdsetool>=0.3.1,<0.4",
   "cdsapi>=0.7.7,<0.8",
+  "eodag[usgs]>=4.3,<5",
 ]
 
 [tool.pytest.ini_options]
