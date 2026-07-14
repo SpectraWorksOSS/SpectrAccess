@@ -33,7 +33,7 @@ print(table.head())
 | --- | --- | --- |
 | GSICS GPPA | Available (EUMETSAT live, verified end-to-end; CMA catalog live but content-empty as of 2026-07-05; NOAA STAR pending, host unreachable 2026-07-05) | None for public THREDDS catalogs |
 | MODIS/VIIRS calibration LUT | VIIRS connector shape available; NOAA STAR F-factor THREDDS URL pending verification; MODIS planned | None for public VIIRS THREDDS; MODIS source design pending |
-| RadCalNet | Stubbed | Authenticated, manually approved account |
+| RadCalNet | Available (official JSON API; live-verified) | Free portal account; HTTP Basic auth via BYO credentials |
 
 NOAA/NESDIS GSICS products are also mirrored on the EUMETSAT collaboration server's master THREDDS catalog (`nesdisProducts.xml`), so some NESDIS product families may already be reachable via the EUMETSAT connector default even while the canonical NOAA STAR host is down.
 
@@ -42,8 +42,9 @@ NOAA/NESDIS GSICS products are also mirrored on the EUMETSAT collaboration serve
 Alongside each connector's native `parse()` output, connectors can additionally emit
 a shared, versioned, long/tidy canonical schema (`spectraccess.core.schema`, currently
 `SCHEMA_VERSION = "1.0"`) so downstream tools can consume any source through one stable
-contract: one row per quantity value plus its uncertainty record. GSICS exposes this via
-`to_canonical(native_frame, ...)` and the connector convenience method `parse_canonical(raw, ...)`.
+contract: one row per quantity value plus its uncertainty record. GSICS and RadCalNet
+expose this via `to_canonical(native_frame, ...)` and the connector convenience method
+`parse_canonical(raw, ...)`.
 
 | column | meaning |
 | --- | --- |
@@ -62,6 +63,15 @@ is. `unc_status` is one of:
 - `derived` -- computed by spectrAccess or a downstream tool.
 - `prior` -- an assumed/prior uncertainty, not measured for this row.
 - `unknown` -- no uncertainty value is available (`unc_value` is null).
+
+RadCalNet `.output` files carry an absolute, dimensionless uncertainty value
+for each wavelength and observation. The native frame preserves it as
+`toa_reflectance_unc` together with `toa_reflectance_unc_status`,
+`toa_reflectance_unc_provider`, and `toa_reflectance_unc_k`. Positive source
+values are `provided`; negative values are climatological magnitudes and are
+therefore `prior`; fill or absent values are `unknown`. RadCalNet R2 does not
+state a coverage factor, so `toa_reflectance_unc_k` and canonical `unc_k` stay
+null. spectrAccess never substitutes a fixed percentage or assumes `k=1`.
 
 Call `spectraccess.core.schema.validate(df)` to check a frame against the schema; it raises
 `SchemaError` naming every violation found. Extra, connector-specific columns are always

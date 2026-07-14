@@ -450,10 +450,14 @@ def test_radcalnet_parse_fixture_uncertainty_status_semantics(monkeypatch):
     # positive -> provided), and so on.
     assert wl400.loc[0, "toa_reflectance_unc_status"] == "prior"
     assert wl400.loc[0, "toa_reflectance_unc"] == pytest.approx(0.0035)
+    assert wl400.loc[0, "toa_reflectance_unc_provider"] == "source-climatology"
+    assert pd.isna(wl400.loc[0, "toa_reflectance_unc_k"])
     assert wl400.loc[1, "toa_reflectance_unc_status"] == "prior"
     assert wl400.loc[1, "toa_reflectance_unc"] == pytest.approx(0.0039)
     assert wl400.loc[2, "toa_reflectance_unc_status"] == "provided"
     assert wl400.loc[2, "toa_reflectance_unc"] == pytest.approx(0.0034)
+    assert wl400.loc[2, "toa_reflectance_unc_provider"] == "source"
+    assert pd.isna(wl400.loc[2, "toa_reflectance_unc_k"])
 
     # No row carries an "unknown" uncertainty status in this fixture except
     # where the wavelength has no uncertainty entry at all -- every kept
@@ -522,6 +526,8 @@ def test_radcalnet_parse_valid_reflectance_with_fill_uncertainty_is_unknown():
     assert frame.loc[0, "toa_reflectance"] == pytest.approx(0.21)
     assert frame.loc[0, "toa_reflectance_unc_status"] == "unknown"
     assert pd.isna(frame.loc[0, "toa_reflectance_unc"])
+    assert pd.isna(frame.loc[0, "toa_reflectance_unc_provider"])
+    assert pd.isna(frame.loc[0, "toa_reflectance_unc_k"])
 
 
 def test_radcalnet_parse_rejects_inconsistent_required_time_axes():
@@ -797,6 +803,17 @@ def test_radcalnet_run_canonical_end_to_end_carries_source_url(monkeypatch, requ
     assert (canonical["site"] == "GSCN01").all()
     assert canonical["source_file"].eq(filename).all()
     assert canonical["source_version"].eq("04.05").all()
+    wl400 = canonical[canonical["wavelength_nm"] == 400.0].sort_values("time").reset_index(drop=True)
+    # Exact values from the licensed real GSCN fixture prove that the public
+    # discover/fetch/output contract carries source uncertainty end to end.
+    assert wl400.loc[0, "unc_value"] == pytest.approx(0.0035)
+    assert wl400.loc[0, "unc_status"] == "prior"
+    assert wl400.loc[0, "unc_provider"] == "source-climatology"
+    assert pd.isna(wl400.loc[0, "unc_k"])
+    assert wl400.loc[2, "unc_value"] == pytest.approx(0.0034)
+    assert wl400.loc[2, "unc_status"] == "provided"
+    assert wl400.loc[2, "unc_provider"] == "source"
+    assert pd.isna(wl400.loc[2, "unc_k"])
 
 
 def test_radcalnet_run_native_end_to_end_carries_source_file(monkeypatch, requests_mock):
@@ -810,4 +827,9 @@ def test_radcalnet_run_native_end_to_end_carries_source_file(monkeypatch, reques
 
     assert native["source_file"].eq(filename).all()
     assert native["source_version"].eq("04.05").all()
+    wl400 = native[native["wavelength_nm"] == 400.0].sort_values("timestamp").reset_index(drop=True)
+    assert wl400.loc[0, "toa_reflectance_unc"] == pytest.approx(0.0035)
+    assert wl400.loc[0, "toa_reflectance_unc_status"] == "prior"
+    assert wl400.loc[0, "toa_reflectance_unc_provider"] == "source-climatology"
+    assert pd.isna(wl400.loc[0, "toa_reflectance_unc_k"])
 

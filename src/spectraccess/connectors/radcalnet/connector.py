@@ -294,11 +294,25 @@ def to_canonical(
         unc_status = native_row.get("toa_reflectance_unc_status", UncertaintyStatus.UNKNOWN.value)
         unc_value = native_row.get("toa_reflectance_unc")
         unc_value = float(unc_value) if pd.notna(unc_value) else None
+        unc_k = native_row.get("toa_reflectance_unc_k")
+        unc_k = float(unc_k) if pd.notna(unc_k) else None
+        unc_provider = native_row.get("toa_reflectance_unc_provider")
+        unc_provider = str(unc_provider) if pd.notna(unc_provider) else None
 
         if unc_status == UncertaintyStatus.PROVIDED.value:
-            unc = Uncertainty(value=unc_value, status=UncertaintyStatus.PROVIDED, k=None, provider="source")
+            unc = Uncertainty(
+                value=unc_value,
+                status=UncertaintyStatus.PROVIDED,
+                k=unc_k,
+                provider=unc_provider or "source",
+            )
         elif unc_status == UncertaintyStatus.PRIOR.value:
-            unc = Uncertainty(value=unc_value, status=UncertaintyStatus.PRIOR, k=None, provider="source-climatology")
+            unc = Uncertainty(
+                value=unc_value,
+                status=UncertaintyStatus.PRIOR,
+                k=unc_k,
+                provider=unc_provider or "source-climatology",
+            )
         else:
             unc = Uncertainty(value=None, status=UncertaintyStatus.UNKNOWN)
 
@@ -444,6 +458,8 @@ def _empty_native_frame() -> pd.DataFrame:
         "value_is_climatological",
         "toa_reflectance_unc",
         "toa_reflectance_unc_status",
+        "toa_reflectance_unc_k",
+        "toa_reflectance_unc_provider",
         "source_file",
         "source_version",
     ] + [canonical for _src, canonical in _ANCILLARY_ROWS]
@@ -498,7 +514,9 @@ def _parse_output_text(text: str, *, source_file: str | None) -> pd.DataFrame:
       ``unc_status="provided"``; negative -> ``unc_status="prior"``,
       ``unc_value=abs(u)``; fill or absent -> ``unc_status="unknown"``,
       ``unc_value=None``. ``unc_k`` is always None (R2 does not state a
-      coverage factor; G4 is the uncertainty-methodology authority).
+      coverage factor; G4 is the uncertainty-methodology authority). The
+      native provider is ``source`` for provided values,
+      ``source-climatology`` for priors, and None for unknowns.
       Ancillary columns P/T/WV/O3/AOD/Ang/Zen apply fill->NaN and
       negative->abs(v), with no per-ancillary climatology flag in v1. ``Azi``
       is different: fill->NaN still applies, but its valid signed azimuth
@@ -642,12 +660,15 @@ def _parse_output_text(text: str, *, source_file: str | None) -> pd.DataFrame:
             if unc_raw is None or unc_raw >= _FILL_THRESHOLD:
                 unc_status = UncertaintyStatus.UNKNOWN.value
                 unc_value = None
+                unc_provider = None
             elif unc_raw < 0:
                 unc_status = UncertaintyStatus.PRIOR.value
                 unc_value = abs(unc_raw)
+                unc_provider = "source-climatology"
             else:
                 unc_status = UncertaintyStatus.PROVIDED.value
                 unc_value = unc_raw
+                unc_provider = "source"
 
             row: dict[str, object] = {
                 "timestamp": timestamps[time_idx],
@@ -660,6 +681,11 @@ def _parse_output_text(text: str, *, source_file: str | None) -> pd.DataFrame:
                 "value_is_climatological": is_climatological,
                 "toa_reflectance_unc": unc_value,
                 "toa_reflectance_unc_status": unc_status,
+                # R2 publishes an absolute, dimensionless uncertainty per
+                # wavelength but does not state its coverage factor. Preserve
+                # that unknown as None; never manufacture k=1 or divide by 2.
+                "toa_reflectance_unc_k": None,
+                "toa_reflectance_unc_provider": unc_provider,
                 "source_file": source_file,
                 "source_version": version,
             }
