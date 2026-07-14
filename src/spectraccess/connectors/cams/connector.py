@@ -17,9 +17,9 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Mapping
 
 import pandas as pd
 
@@ -31,6 +31,7 @@ CAMSResolvedSource = Literal["jasmin", "ads", "cache-unknown"]
 JASMIN_BASE_URL = "https://gws-access.jasmin.ac.uk/public/nceo_ard/cams/"
 ADS_API_URL = "https://ads.atmosphere.copernicus.eu/api"
 ADS_DATASET = "cams-global-reanalysis-eac4"
+ADS_RETRIEVE_URL = f"{ADS_API_URL}/retrieve/v1/processes/{ADS_DATASET}"
 ADS_VARIABLES = (
     "total_aerosol_optical_depth_550nm",
     "total_column_water_vapour",
@@ -38,6 +39,7 @@ ADS_VARIABLES = (
 )
 SIAC_VARIABLES = ("aod550", "tcwv", "gtco3")
 ADS_TIMES = ("00:00", "03:00", "06:00", "09:00", "12:00", "15:00", "18:00", "21:00")
+_MANIFEST_CLOCK_SKEW = timedelta(minutes=5)
 
 
 class CAMSConnectorError(RuntimeError):
@@ -215,13 +217,47 @@ class CAMSConnector(Connector):
         date_dir = target.cache_root / target.date_label
         paths = tuple(date_dir / f"{target.date_label}_{name}.tif" for name in SIAC_VARIABLES)
         cache_hit = all(path.exists() for path in paths)
+        mirrors = [JASMIN_BASE_URL.rstrip("/")]
+        if self.fallback_url:
+            mirrors.append(self.fallback_url)
+        allowed_source_urls = {
+            "jasmin": tuple(mirrors),
+            "ads": (ADS_RETRIEVE_URL,),
+        }
+        manifest = _read_source_manifest(
+            date_dir,
+            allowed_source_urls=allowed_source_urls,
+        )
+        if manifest is not None and manifest.resolved_source == "ads":
+            # A RefCal retry may leave zero, some, or all derived SIAC TIFFs
+            # beside the provider-authoritative ADS netCDF. The sidecar names
+            # only that raw provider asset, so resolve it before considering
+            # TIFF completeness and let the consumer deterministically derive
+            # the family again. Never reinterpret derived files as JASMIN.
+            raw_nc = date_dir / f"cams_eac4_{target.date_label}.nc"
+            _require_manifest_assets(manifest, (raw_nc.name,))
+            if target.requested_source == "jasmin":
+                raise CAMSProviderError(
+                    f"cached CAMS {target.date_label} provenance is 'ads', "
+                    "not explicit source='jasmin'; use a separate cache or source='auto'"
+                )
+            return CAMSResult(
+                scene_date=target.scene_date,
+                requested_source=target.requested_source,
+                resolved_source="ads",
+                base_dir=target.cache_root,
+                date_dir=date_dir,
+                files=(raw_nc,),
+                source_url=manifest.source_url,
+                retrieved_at=manifest.recorded_at,
+                cache_hit=True,
+                dataset=ADS_DATASET,
+            )
+
         resolved_source: CAMSResolvedSource
         resolved_url: str | None
         retrieved_at: datetime | None
         if not cache_hit:
-            mirrors = [JASMIN_BASE_URL.rstrip("/")]
-            if self.fallback_url:
-                mirrors.append(self.fallback_url)
             last_error: CAMSProviderError | None = None
             resolved_base: str | None = None
             for base in mirrors:
@@ -255,20 +291,22 @@ class CAMSConnector(Connector):
                 raise CAMSDateUnavailableError(
                     f"CAMS {target.date_label} is not published on a configured JASMIN-style mirror"
                 )
-            manifest = _write_source_manifest(date_dir, "jasmin", resolved_base, paths)
+            manifest = _write_source_manifest(
+                date_dir,
+                "jasmin",
+                resolved_base,
+                paths,
+                allowed_source_urls=allowed_source_urls,
+            )
             resolved_source = manifest.resolved_source
             resolved_url = manifest.source_url
             retrieved_at = manifest.recorded_at
         else:
-            manifest = _read_source_manifest(
-                date_dir,
-                expected_source="jasmin",
-                expected_assets=tuple(path.name for path in paths),
-            )
             if manifest is not None:
                 resolved_source = manifest.resolved_source
                 resolved_url = manifest.source_url
                 retrieved_at = manifest.recorded_at
+                _require_manifest_assets(manifest, tuple(path.name for path in paths))
             else:
                 # Pre-spectrAccess shared caches carry no trustworthy source
                 # marker. Do not launder path shape into false provenance.
@@ -323,8 +361,9 @@ class CAMSConnector(Connector):
                 manifest = _write_source_manifest(
                     date_dir,
                     "ads",
-                    f"{ADS_API_URL}/retrieve/v1/processes/{ADS_DATASET}",
+                    ADS_RETRIEVE_URL,
                     (path,),
+                    allowed_source_urls={"ads": (ADS_RETRIEVE_URL,)},
                 )
                 resolved_source = manifest.resolved_source
                 resolved_url = manifest.source_url
@@ -342,6 +381,7 @@ class CAMSConnector(Connector):
                 date_dir,
                 expected_source="ads",
                 expected_assets=(path.name,),
+                allowed_source_urls={"ads": (ADS_RETRIEVE_URL,)},
             )
             if manifest is None:
                 # A filename is not provider authority. Preserve usable legacy
@@ -442,7 +482,12 @@ class _SourceManifest:
 
 
 def _write_source_manifest(
-    date_dir: Path, source: Literal["jasmin", "ads"], source_url: str | None, files: tuple[Path, ...]
+    date_dir: Path,
+    source: Literal["jasmin", "ads"],
+    source_url: str | None,
+    files: tuple[Path, ...],
+    *,
+    allowed_source_urls: Mapping[str, tuple[str, ...]],
 ) -> _SourceManifest:
     payload = {
         "schema": "spectraccess-cams-source-v1",
@@ -459,6 +504,7 @@ def _write_source_manifest(
         date_dir,
         expected_source=source,
         expected_assets=tuple(file.name for file in files),
+        allowed_source_urls=allowed_source_urls,
     )
     if manifest is None:  # pragma: no cover - path was just atomically written
         raise CAMSProviderError("CAMS cache provenance manifest disappeared after write")
@@ -470,6 +516,7 @@ def _read_source_manifest(
     *,
     expected_source: Literal["jasmin", "ads"] | None = None,
     expected_assets: tuple[str, ...] | None = None,
+    allowed_source_urls: Mapping[str, tuple[str, ...]],
 ) -> _SourceManifest | None:
     path = _manifest_path(date_dir)
     if not path.exists():
@@ -498,6 +545,11 @@ def _read_source_manifest(
     parsed_url = urllib.parse.urlparse(source_url)
     if parsed_url.scheme not in {"http", "https"} or not parsed_url.netloc:
         raise CAMSProviderError("invalid CAMS cache provenance source_url")
+    allowed_urls = allowed_source_urls.get(source, ())
+    if source_url not in allowed_urls:
+        raise CAMSProviderError(
+            f"CAMS cache provenance source_url is not authoritative for {source!r}"
+        )
 
     raw_assets = payload.get("assets")
     if (
@@ -525,13 +577,25 @@ def _read_source_manifest(
         raise CAMSProviderError("invalid CAMS cache provenance recorded_at") from None
     if recorded_at.tzinfo is None or recorded_at.utcoffset() is None:
         raise CAMSProviderError("invalid CAMS cache provenance recorded_at")
+    recorded_at = recorded_at.astimezone(timezone.utc)
+    if recorded_at > datetime.now(timezone.utc) + _MANIFEST_CLOCK_SKEW:
+        raise CAMSProviderError("CAMS cache provenance recorded_at is implausibly in the future")
 
     return _SourceManifest(
         resolved_source=source,
         source_url=source_url,
         assets=assets,
-        recorded_at=recorded_at.astimezone(timezone.utc),
+        recorded_at=recorded_at,
     )
+
+
+def _require_manifest_assets(
+    manifest: _SourceManifest, expected_assets: tuple[str, ...]
+) -> None:
+    if manifest.assets != expected_assets:
+        raise CAMSProviderError(
+            "CAMS cache provenance assets do not match the requested complete asset family"
+        )
 
 
 def _as_utc(value: datetime) -> datetime:

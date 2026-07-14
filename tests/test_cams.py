@@ -21,6 +21,8 @@ from spectraccess.connectors.cams import connector as cams_module
 SCENE_DATE = datetime(2025, 10, 4, 10, 36, tzinfo=timezone.utc)
 DATE_LABEL = "2025_10_04"
 RECORDED_AT = "2025-10-05T12:34:56+00:00"
+JASMIN_SOURCE_URL = cams_module.JASMIN_BASE_URL.rstrip("/")
+ADS_SOURCE_URL = f"{cams_module.ADS_API_URL}/retrieve/v1/processes/{ADS_DATASET}"
 
 
 def _write_jasmin_family(root: Path) -> tuple[Path, ...]:
@@ -243,7 +245,7 @@ def test_known_jasmin_cache_uses_sidecar_recorded_at(tmp_path):
     _write_manifest(
         tmp_path / DATE_LABEL,
         source="jasmin",
-        source_url="https://jasmin.example/cams",
+        source_url=JASMIN_SOURCE_URL,
         assets=[path.name for path in paths],
     )
 
@@ -289,6 +291,34 @@ def test_partial_legacy_jasmin_cache_is_wholly_replaced_before_labelling(
     assert old.read_bytes() == b"fresh-known"
 
 
+@pytest.mark.parametrize("derived_count", [0, 1, 3])
+def test_repeat_auto_resolution_preserves_ads_sidecar_beside_derived_tiffs(
+    tmp_path, monkeypatch, derived_count
+):
+    class FakeClient:
+        def retrieve(self, dataset, request, target):
+            Path(target).write_bytes(b"authoritative-netcdf")
+
+    monkeypatch.setattr(cams_module, "_cds_client", lambda url, token: FakeClient())
+    first = CAMSConnector(cache_dir=tmp_path, source="ads", ads_token="secret").resolve(
+        SCENE_DATE
+    )
+    for name in ("aod550", "tcwv", "gtco3")[:derived_count]:
+        (first.date_dir / f"{DATE_LABEL}_{name}.tif").write_bytes(b"derived-by-refcal")
+
+    repeat = CAMSConnector(cache_dir=tmp_path, source="auto", ads_token="secret")
+    ads_fetch = Mock(side_effect=AssertionError("known ADS cache must not refetch"))
+    monkeypatch.setattr(repeat, "_fetch_ads", ads_fetch)
+    second = repeat.resolve(SCENE_DATE)
+
+    assert second.resolved_source == "ads"
+    assert second.files == first.files
+    assert second.dataset == ADS_DATASET
+    assert second.retrieved_at == first.retrieved_at
+    assert second.cache_hit is True
+    ads_fetch.assert_not_called()
+
+
 @pytest.mark.parametrize(
     "payload",
     [
@@ -311,6 +341,17 @@ def test_partial_legacy_jasmin_cache_is_wholly_replaced_before_labelling(
         {
             "schema": "spectraccess-cams-source-v1",
             "resolved_source": "jasmin",
+            "source_url": "https://attacker.invalid/cams",
+            "assets": [
+                f"{DATE_LABEL}_aod550.tif",
+                f"{DATE_LABEL}_tcwv.tif",
+                f"{DATE_LABEL}_gtco3.tif",
+            ],
+            "recorded_at": RECORDED_AT,
+        },
+        {
+            "schema": "spectraccess-cams-source-v1",
+            "resolved_source": "jasmin",
             "source_url": "https://jasmin.example/cams",
             "assets": ["../escape.tif"],
             "recorded_at": RECORDED_AT,
@@ -325,6 +366,17 @@ def test_partial_legacy_jasmin_cache_is_wholly_replaced_before_labelling(
                 f"{DATE_LABEL}_gtco3.tif",
             ],
             "recorded_at": "2025-10-05T12:34:56",
+        },
+        {
+            "schema": "spectraccess-cams-source-v1",
+            "resolved_source": "jasmin",
+            "source_url": JASMIN_SOURCE_URL,
+            "assets": [
+                f"{DATE_LABEL}_aod550.tif",
+                f"{DATE_LABEL}_tcwv.tif",
+                f"{DATE_LABEL}_gtco3.tif",
+            ],
+            "recorded_at": "2099-01-01T00:00:00+00:00",
         },
     ],
 )
@@ -343,7 +395,7 @@ def test_sidecar_with_wrong_or_incomplete_asset_family_is_rejected(tmp_path):
     _write_manifest(
         tmp_path / DATE_LABEL,
         source="jasmin",
-        source_url="https://jasmin.example/cams",
+        source_url=JASMIN_SOURCE_URL,
         assets=[paths[0].name],
     )
 
@@ -356,9 +408,9 @@ def test_ads_sidecar_cannot_relabel_jasmin_asset_family(tmp_path):
     _write_manifest(
         tmp_path / DATE_LABEL,
         source="ads",
-        source_url="https://ads.example/process",
+        source_url=ADS_SOURCE_URL,
         assets=[path.name for path in paths],
     )
 
-    with pytest.raises(CAMSProviderError, match="does not match expected"):
+    with pytest.raises(CAMSProviderError, match="complete asset family"):
         CAMSConnector(cache_dir=tmp_path, source="auto", ads_token="secret").resolve(SCENE_DATE)
