@@ -212,22 +212,37 @@ class Sentinel2CDSEConnector(Connector):
         if total == 0:
             return []
 
-        page_log = _CaptureLogger()
-        page_terms = {
-            **search_terms,
-            "skip": max(0, total - limit),
-            "top": min(limit, 1000),
-        }
-        try:
-            feature_query = _provider_query(
-                page_terms,
-                logger=page_log,
-                max_attempts=self.max_attempts,
-            )
-            features = list(itertools.islice(feature_query, limit))
-        except Exception as exc:
-            raise CDSEProviderError(f"CDSE discovery page failed: {exc}") from exc
-        _raise_provider_errors("CDSE discovery page", page_log)
+        requested = min(limit, total)
+        first_skip = max(0, total - requested)
+        features: list[Mapping[str, Any]] = []
+        while len(features) < requested:
+            page_number = len(features) // 1000 + 1
+            page_size = min(1000, requested - len(features))
+            page_log = _CaptureLogger()
+            page_terms = {
+                **search_terms,
+                "skip": first_skip + len(features),
+                "top": page_size,
+            }
+            try:
+                feature_query = _provider_query(
+                    page_terms,
+                    logger=page_log,
+                    max_attempts=self.max_attempts,
+                )
+                page = list(itertools.islice(feature_query, page_size))
+            except Exception as exc:
+                raise CDSEProviderError(
+                    f"CDSE discovery page {page_number} failed: {exc}"
+                ) from exc
+            _raise_provider_errors(f"CDSE discovery page {page_number}", page_log)
+            if len(page) != page_size:
+                raise CDSEProviderError(
+                    f"CDSE discovery page {page_number} returned {len(page)} product(s), "
+                    f"expected {page_size} from the preceding provider count; the catalogue "
+                    "changed during pagination, retry the discovery"
+                )
+            features.extend(page)
 
         retrieved_at = datetime.now(timezone.utc)
         targets = [_feature_to_target(feature, retrieved_at=retrieved_at) for feature in features]

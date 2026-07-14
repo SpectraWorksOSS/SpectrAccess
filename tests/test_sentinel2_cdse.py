@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from copy import deepcopy
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pandas as pd
@@ -63,6 +63,23 @@ def _patch_query(monkeypatch, features: list[dict], *, total: int | None = None)
     return calls
 
 
+def _dated_features(count: int) -> list[dict]:
+    features = []
+    start = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    for index in range(count):
+        timestamp = start + timedelta(minutes=index)
+        compact = timestamp.strftime("%Y%m%dT%H%M%S")
+        item = deepcopy(_feature())
+        item["Id"] = f"id-{index:05d}"
+        item["Name"] = f"S2B_MSIL1C_{compact}_N0510_R008_T31UFT_{compact}.SAFE"
+        item["ContentDate"] = {
+            "Start": timestamp.isoformat().replace("+00:00", "Z"),
+            "End": timestamp.isoformat().replace("+00:00", "Z"),
+        }
+        features.append(item)
+    return features
+
+
 def test_discover_wraps_cdsetool_query_and_preserves_refcal_product_fields(monkeypatch):
     feature = _feature()
     calls = _patch_query(monkeypatch, [feature])
@@ -86,7 +103,7 @@ def test_discover_wraps_cdsetool_query_and_preserves_refcal_product_fields(monke
         "top": 0,
     }
     assert calls[1][1]["skip"] == 0
-    assert calls[1][1]["top"] == 10
+    assert calls[1][1]["top"] == 1
     assert calls[0][2]["expand_attributes"] is True
 
     # Golden parity with the real RefCal ProductRef fields used by source
@@ -127,6 +144,52 @@ def test_discover_uses_cdsetool_count_skip_for_newest_first(monkeypatch):
 
     assert calls[1][1]["skip"] == 3
     assert [target.product_id for target in targets] == ["id-5", "id-4"]
+
+
+@pytest.mark.parametrize(
+    "total, limit, expected_page_sizes, expected_first_skip",
+    [
+        (999, 1500, [999], 0),
+        (1000, 1000, [1000], 0),
+        (1001, 1001, [1000, 1], 0),
+        (2000, 1001, [1000, 1], 999),
+        (2505, 1501, [1000, 501], 1004),
+    ],
+)
+def test_discover_paginates_large_newest_slice_exactly(
+    monkeypatch, total, limit, expected_page_sizes, expected_first_skip
+):
+    features = _dated_features(total)
+    calls = _patch_query(monkeypatch, features)
+
+    targets = Sentinel2CDSEConnector().discover(mgrs_tile="31UFT", limit=limit)
+
+    requested = min(total, limit)
+    expected_indices = list(range(total - 1, total - requested - 1, -1))
+    assert len(targets) == requested
+    assert [target.product_id for target in targets] == [
+        f"id-{index:05d}" for index in expected_indices
+    ]
+    page_calls = calls[1:]
+    assert [call[1]["top"] for call in page_calls] == expected_page_sizes
+    assert page_calls[0][1]["skip"] == expected_first_skip
+    assert [call[1]["skip"] for call in page_calls] == [
+        expected_first_skip + sum(expected_page_sizes[:index])
+        for index in range(len(expected_page_sizes))
+    ]
+
+
+def test_discover_fails_loud_when_catalogue_changes_between_count_and_page(monkeypatch):
+    feature = _feature()
+
+    def short_page_query(_collection, search_terms, options=None):
+        if search_terms["top"] == 0:
+            return _FakeQuery([], total=2)
+        return _FakeQuery([feature], total=1)
+
+    monkeypatch.setattr(module, "query_features", short_page_query)
+    with pytest.raises(CDSEProviderError, match="catalogue changed during pagination"):
+        Sentinel2CDSEConnector().discover(mgrs_tile="31UFT", limit=2)
 
 
 def test_discover_bbox_is_delegated_as_cdsetool_geometry(monkeypatch):
