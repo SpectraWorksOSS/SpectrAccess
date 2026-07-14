@@ -21,6 +21,12 @@ Sentinel-2 discovery and download through CDSETool:
 pip install "spectraccess[cdse]"
 ```
 
+For CAMS EAC4 access through ECMWF's maintained CDS API client:
+
+```bash
+pip install "spectraccess[cams]"
+```
+
 For EMIT L1B/L2A discovery and download through NASA earthaccess:
 
 ```bash
@@ -58,6 +64,7 @@ print(table.head())
 | MODIS/VIIRS calibration LUT | VIIRS connector shape available; NOAA STAR F-factor THREDDS URL pending verification; MODIS planned | None for public VIIRS THREDDS; MODIS source design pending |
 | RadCalNet | Available (official JSON API; live-verified) | Free portal account; HTTP Basic auth via BYO credentials |
 | Sentinel-2 CDSE | Available (thin adapter over maintained `cdsetool`; public discovery, BYO-credential download) | None for catalogue discovery; free CDSE account for product download |
+| CAMS EAC4 / JASMIN | Available (JASMIN cache access plus thin ADS adapter over maintained `cdsapi`) | None for JASMIN; free ADS account/token for ADS and automatic fallback |
 | NASA EMIT L1B/L2A | Available (thin adapter over maintained `earthaccess`; CMR metadata live-verified) | None for CMR discovery; free Earthdata Login for protected NetCDF download |
 | Landsat 8/9 Collection 2 L1TP | Available (thin adapter over maintained EODAG USGS plugin; preserves tier and WRS-2 identity) | Free USGS EarthExplorer account and M2M application token via BYO credentials |
 
@@ -106,6 +113,15 @@ with null `unc_value`, `unc_k`, and `unc_provider`. Product identity, footprint,
 processing version, catalogue/download URLs, and the exact provider metadata
 remain attached as provenance. spectrAccess does not parse SAFE pixels or
 reimplement CDSE transport; those stay with CDSETool and downstream consumers.
+
+The CAMS connector returns a `CAMSResult` that names `base_dir` (the directory
+containing the date subtree) and `date_dir` (the `YYYY_MM_DD` subtree)
+separately. This is an intentional typed contract: consumers such as SIAC that
+append the date must use `base_dir`, while format converters can work inside
+`date_dir`. `requested_source`, `resolved_source`, dataset URL, retrieval time,
+cache status, and exact local assets are retained as native provenance. The
+connector retrieves source assets only; atmospheric-correction and
+model-specific format conversion remain downstream responsibilities.
 
 The EMIT connector likewise keeps the multi-gigabyte science cubes opaque. Its
 canonical output covers only source-provided scene metadata (cloud cover and
