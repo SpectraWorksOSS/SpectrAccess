@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import tomllib
 from copy import deepcopy
 from dataclasses import replace
 from datetime import date, datetime, timezone
@@ -123,6 +124,7 @@ def test_discover_delegates_to_earthaccess_and_preserves_cmr_provenance(monkeypa
             "short_name": "EMITL2ARFL",
             "version": "001",
             "count": 1,
+            "sort_key": "-start_date",
             "bounding_box": (175.0, -42.0, 177.0, -40.0),
             "temporal": (
                 datetime(2024, 1, 1, tzinfo=timezone.utc),
@@ -147,6 +149,62 @@ def test_discover_delegates_to_earthaccess_and_preserves_cmr_provenance(monkeypa
     assert target.checksums[PRIMARY] == ("SHA-512", "0" * 128)
     assert target.footprint_wkt.startswith("POLYGON ((175.58415 -40.48677")
     assert target.raw["umm"]["CollectionReference"]["ShortName"] == "EMITL2ARFL"
+
+
+def test_discover_asks_cmr_for_newest_before_count_truncation(monkeypatch):
+    older = _granule()
+    older["meta"]["native-id"] = "older"
+    older["umm"]["GranuleUR"] = "older"
+    older["umm"]["TemporalExtent"]["RangeDateTime"]["BeginningDateTime"] = (
+        "2024-01-01T01:03:26Z"
+    )
+    newer = deepcopy(older)
+    newer["meta"]["native-id"] = "newer"
+    newer["umm"]["GranuleUR"] = "newer"
+    newer["umm"]["TemporalExtent"]["RangeDateTime"]["BeginningDateTime"] = (
+        "2024-02-01T01:03:26Z"
+    )
+
+    def live_shaped_search(**kwargs):
+        # Model CMR's server-side sort then count behavior. Omitting sort_key
+        # would return the older catalogue-default first page.
+        records = [older, newer]
+        if kwargs.get("sort_key") == "-start_date":
+            records.reverse()
+        return records[: kwargs["count"]]
+
+    monkeypatch.setattr(module.earthaccess, "search_data", live_shaped_search)
+    targets = EMITEarthaccessConnector().discover(limit=1)
+    assert [target.product_id for target in targets] == ["newer"]
+
+
+def test_antimeridian_footprint_centroid_stays_at_dateline(monkeypatch):
+    granule = _granule()
+    granule["umm"]["SpatialExtent"]["HorizontalSpatialDomain"]["Geometry"][
+        "GPolygons"
+    ][0]["Boundary"]["Points"] = [
+        {"Longitude": 179.8, "Latitude": 10.0},
+        {"Longitude": -179.8, "Latitude": 10.0},
+        {"Longitude": -179.6, "Latitude": 12.0},
+        {"Longitude": 179.6, "Latitude": 12.0},
+        {"Longitude": 179.8, "Latitude": 10.0},
+    ]
+    monkeypatch.setattr(module.earthaccess, "search_data", lambda **_kwargs: [granule])
+    target = EMITEarthaccessConnector().discover(limit=1)[0]
+    canonical = target_to_canonical(target)
+    assert canonical["latitude"].eq(11.0).all()
+    assert canonical["longitude"].abs().eq(180.0).all()
+
+
+def test_emit_extra_keeps_python_312_requirement_fail_closed():
+    root = Path(__file__).resolve().parents[1]
+    project = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+    # This dependency must remain unmarked: on Python 3.10/3.11 pip then
+    # reports earthaccess's Requires-Python >=3.12 instead of silently
+    # installing spectraccess[emit] without its runtime client.
+    assert project["optional-dependencies"]["emit"] == ["earthaccess==0.18.0"]
+    readme = (root / "README.md").read_text(encoding="utf-8")
+    assert "EMIT extra requires Python 3.12 or newer" in readme
 
 
 @pytest.mark.parametrize("product", ["EMITL2BMIN", "SENTINEL2"])

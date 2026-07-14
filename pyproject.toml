@@ -44,7 +44,10 @@ cdse = [
   "cdsetool>=0.3.1,<0.4",
 ]
 emit = [
-  "earthaccess>=0.18,<1",
+  # Intentionally unmarked: earthaccess 0.18 requires Python >=3.12. Keeping
+  # the dependency active makes pip reject spectraccess[emit] on 3.10/3.11
+  # instead of silently installing an unusable extra without its client.
+  "earthaccess==0.18.0",
 ]
 landsat = [
   "eodag[usgs]>=4.3,<5",
@@ -55,7 +58,7 @@ test = [
   # Exercise the real maintained-client adapter in fixture tests. Runtime
   # users who need this connector install spectraccess[cdse].
   "cdsetool>=0.3.1,<0.4",
-  "earthaccess>=0.18,<1",
+  "earthaccess==0.18.0",
   "eodag[usgs]>=4.3,<5",
 ]
 

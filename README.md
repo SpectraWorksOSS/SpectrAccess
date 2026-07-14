@@ -27,6 +27,10 @@ For EMIT L1B/L2A discovery and download through NASA earthaccess:
 pip install "spectraccess[emit]"
 ```
 
+The EMIT extra requires Python 3.12 or newer (the requirement of the reviewed
+`earthaccess==0.18.0` client). The base package and other extras continue to
+support the Python versions declared in the package metadata.
+
 For Landsat Collection-2 discovery and download through EODAG/USGS:
 
 ```bash

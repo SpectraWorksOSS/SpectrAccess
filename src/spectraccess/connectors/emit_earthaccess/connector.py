@@ -9,6 +9,7 @@ and canonical metadata provenance. It never loads or reshapes EMIT cubes.
 from __future__ import annotations
 
 import hashlib
+import math
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timezone
 from importlib.metadata import PackageNotFoundError, version
@@ -144,6 +145,9 @@ class EMITEarthaccessConnector(Connector):
             "short_name": product,
             "version": selected_version,
             "count": limit,
+            # CMR must order before earthaccess applies ``count``. Sorting the
+            # already-truncated client result cannot guarantee newest-first.
+            "sort_key": "-start_date",
         }
         if bbox is not None:
             query["bounding_box"] = bbox
@@ -549,9 +553,19 @@ def _footprint_centroid(wkt: str) -> tuple[float | None, float | None]:
     unique = coordinates[:-1] if len(coordinates) > 1 and coordinates[0] == coordinates[-1] else coordinates
     if not unique:
         return None, None
+    longitude_radians = [math.radians(lon) for lon, _ in unique]
+    mean_sine = sum(math.sin(lon) for lon in longitude_radians) / len(longitude_radians)
+    mean_cosine = sum(math.cos(lon) for lon in longitude_radians) / len(longitude_radians)
+    # A circular mean keeps a footprint straddling the antimeridian near
+    # +/-180 instead of incorrectly placing it near Greenwich.
+    longitude = (
+        None
+        if math.hypot(mean_sine, mean_cosine) < 1e-12
+        else math.degrees(math.atan2(mean_sine, mean_cosine))
+    )
     return (
         sum(lat for _, lat in unique) / len(unique),
-        sum(lon for lon, _ in unique) / len(unique),
+        longitude,
     )
 
 
