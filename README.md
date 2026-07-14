@@ -27,6 +27,16 @@ For CAMS EAC4 access through ECMWF's maintained CDS API client:
 pip install "spectraccess[cams]"
 ```
 
+For EMIT L1B/L2A discovery and download through NASA earthaccess:
+
+```bash
+pip install "spectraccess[emit]"
+```
+
+The EMIT extra requires Python 3.12 or newer (the requirement of the reviewed
+`earthaccess==0.18.0` client). The base package and other extras continue to
+support the Python versions declared in the package metadata.
+
 For Landsat Collection-2 discovery and download through EODAG/USGS:
 
 ```bash
@@ -55,6 +65,7 @@ print(table.head())
 | RadCalNet | Available (official JSON API; live-verified) | Free portal account; HTTP Basic auth via BYO credentials |
 | Sentinel-2 CDSE | Available (thin adapter over maintained `cdsetool`; public discovery, BYO-credential download) | None for catalogue discovery; free CDSE account for product download |
 | CAMS EAC4 / JASMIN | Available (JASMIN cache access plus thin ADS adapter over maintained `cdsapi`) | None for JASMIN; free ADS account/token for ADS and automatic fallback |
+| NASA EMIT L1B/L2A | Available (thin adapter over maintained `earthaccess`; CMR metadata live-verified) | None for CMR discovery; free Earthdata Login for protected NetCDF download |
 | Landsat 8/9 Collection 2 L1TP | Available (thin adapter over maintained EODAG USGS plugin; preserves tier and WRS-2 identity) | Free USGS EarthExplorer account and M2M application token via BYO credentials |
 
 NOAA/NESDIS GSICS products are also mirrored on the EUMETSAT collaboration server's master THREDDS catalog (`nesdisProducts.xml`), so some NESDIS product families may already be reachable via the EUMETSAT connector default even while the canonical NOAA STAR host is down.
@@ -111,6 +122,14 @@ append the date must use `base_dir`, while format converters can work inside
 cache status, and exact local assets are retained as native provenance. The
 connector retrieves source assets only; atmospheric-correction and
 model-specific format conversion remain downstream responsibilities.
+
+The EMIT connector likewise keeps the multi-gigabyte science cubes opaque. Its
+canonical output covers only source-provided scene metadata (cloud cover and
+solar angles), each labelled `unc_status="unknown"` because CMR does not publish
+an uncertainty for those metadata values. Exact collection/native IDs, footprint,
+orbit/scene, asset URLs, byte sizes, and SHA-512 checksums remain in the target
+provenance. Cube/GLT interpretation and scientific admission are deliberately
+downstream concerns; connector availability is not a claim-grade endorsement.
 
 The Landsat connector applies the same boundary to Collection-2 L1TP products:
 EODAG owns USGS search, authentication, retries, and download transport;
