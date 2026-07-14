@@ -319,6 +319,15 @@ class CAMSConnector(Connector):
                 raise CAMSProviderError(
                     f"ADS retrieval failed for {target.scene_date.date()} ({type(exc).__name__})"
                 ) from None
+        elif _read_source_manifest(date_dir) is None:
+            # The named raw EAC4 asset plus an explicit/auto ADS resolution is
+            # sufficient to backfill provenance for pre-manifest caches.
+            _write_source_manifest(
+                date_dir,
+                "ads",
+                f"{ADS_API_URL}/retrieve/v1/processes/{ADS_DATASET}",
+                (path,),
+            )
 
         return CAMSResult(
             scene_date=target.scene_date,
