@@ -46,6 +46,9 @@ cdse = [
 emit = [
   "earthaccess>=0.18,<1",
 ]
+landsat = [
+  "eodag[usgs]>=4.3,<5",
+]
 test = [
   "pytest>=8",
   "requests-mock>=1.11",
@@ -53,6 +56,7 @@ test = [
   # users who need this connector install spectraccess[cdse].
   "cdsetool>=0.3.1,<0.4",
   "earthaccess>=0.18,<1",
+  "eodag[usgs]>=4.3,<5",
 ]
 
 [tool.pytest.ini_options]

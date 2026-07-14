@@ -27,6 +27,12 @@ For EMIT L1B/L2A discovery and download through NASA earthaccess:
 pip install "spectraccess[emit]"
 ```
 
+For Landsat Collection-2 discovery and download through EODAG/USGS:
+
+```bash
+pip install "spectraccess[landsat]"
+```
+
 ## Quickstart
 
 ```python
@@ -49,6 +55,7 @@ print(table.head())
 | RadCalNet | Available (official JSON API; live-verified) | Free portal account; HTTP Basic auth via BYO credentials |
 | Sentinel-2 CDSE | Available (thin adapter over maintained `cdsetool`; public discovery, BYO-credential download) | None for catalogue discovery; free CDSE account for product download |
 | NASA EMIT L1B/L2A | Available (thin adapter over maintained `earthaccess`; CMR metadata live-verified) | None for CMR discovery; free Earthdata Login for protected NetCDF download |
+| Landsat 8/9 Collection 2 L1TP | Available (thin adapter over maintained EODAG USGS plugin; preserves tier and WRS-2 identity) | Free USGS EarthExplorer account and M2M application token via BYO credentials |
 
 NOAA/NESDIS GSICS products are also mirrored on the EUMETSAT collaboration server's master THREDDS catalog (`nesdisProducts.xml`), so some NESDIS product families may already be reachable via the EUMETSAT connector default even while the canonical NOAA STAR host is down.
 
@@ -103,6 +110,13 @@ an uncertainty for those metadata values. Exact collection/native IDs, footprint
 orbit/scene, asset URLs, byte sizes, and SHA-512 checksums remain in the target
 provenance. Cube/GLT interpretation and scientific admission are deliberately
 downstream concerns; connector availability is not a claim-grade endorsement.
+
+The Landsat connector applies the same boundary to Collection-2 L1TP products:
+EODAG owns USGS search, authentication, retries, and download transport;
+spectrAccess preserves the provider product ID, display ID, collection number,
+tier (`T1`, `T2`, or `RT`), WRS-2 path/row, footprint, provider metadata, and a
+stable cache identifier. Its canonical row describes only provider scene cloud
+cover, with unknown uncertainty; archive pixels remain a downstream concern.
 
 Call `spectraccess.core.schema.validate(df)` to check a frame against the schema; it raises
 `SchemaError` naming every violation found. Extra, connector-specific columns are always
