@@ -9,6 +9,7 @@ for any model-specific format conversion.
 from __future__ import annotations
 
 import os
+import json
 import shutil
 import tempfile
 import time
@@ -24,6 +25,7 @@ import pandas as pd
 from spectraccess.core.connector import Connector
 
 CAMSMode = Literal["auto", "jasmin", "ads"]
+CAMSResolvedSource = Literal["jasmin", "ads", "cache-unknown"]
 
 JASMIN_BASE_URL = "https://gws-access.jasmin.ac.uk/public/nceo_ard/cams/"
 ADS_API_URL = "https://ads.atmosphere.copernicus.eu/api"
@@ -83,11 +85,11 @@ class CAMSResult:
 
     scene_date: datetime
     requested_source: CAMSMode
-    resolved_source: Literal["jasmin", "ads"]
+    resolved_source: CAMSResolvedSource
     base_dir: Path
     date_dir: Path
     files: tuple[Path, ...]
-    source_url: str
+    source_url: str | None
     retrieved_at: datetime
     cache_hit: bool
     dataset: str | None = None
@@ -212,11 +214,14 @@ class CAMSConnector(Connector):
         date_dir = target.cache_root / target.date_label
         paths = tuple(date_dir / f"{target.date_label}_{name}.tif" for name in SIAC_VARIABLES)
         cache_hit = all(path.exists() for path in paths)
+        resolved_source: CAMSResolvedSource = "jasmin"
+        resolved_url: str | None = JASMIN_BASE_URL
         if not cache_hit:
             mirrors = [JASMIN_BASE_URL.rstrip("/")]
             if self.fallback_url:
                 mirrors.append(self.fallback_url)
             last_error: CAMSProviderError | None = None
+            resolved_base: str | None = None
             for base in mirrors:
                 try:
                     if not self._date_available(base, target.date_label):
@@ -225,6 +230,7 @@ class CAMSConnector(Connector):
                     for path in paths:
                         if not path.exists():
                             self._download(f"{base}/{target.date_label}/{path.name}", path)
+                    resolved_base = base
                     break
                 except CAMSProviderError as exc:
                     last_error = exc
@@ -234,15 +240,39 @@ class CAMSConnector(Connector):
                 raise CAMSDateUnavailableError(
                     f"CAMS {target.date_label} is not published on a configured JASMIN-style mirror"
                 )
+            resolved_url = resolved_base
+            _write_source_manifest(date_dir, "jasmin", resolved_url, paths)
+        else:
+            manifest = _read_source_manifest(date_dir)
+            if manifest is not None:
+                manifest_source = manifest.get("resolved_source")
+                if manifest_source in {"jasmin", "ads"}:
+                    resolved_source = manifest_source
+                    resolved_url = manifest.get("source_url")
+                    if resolved_source == "ads":
+                        raw_nc = date_dir / f"cams_eac4_{target.date_label}.nc"
+                        if raw_nc.exists():
+                            paths = (*paths, raw_nc)
+            else:
+                # Pre-spectrAccess shared caches carry no trustworthy source
+                # marker. Do not launder path shape into false provenance.
+                resolved_source = "cache-unknown"
+                resolved_url = None
+
+            if target.requested_source == "jasmin" and resolved_source != "jasmin":
+                raise CAMSProviderError(
+                    f"cached CAMS {target.date_label} provenance is {resolved_source!r}, "
+                    "not explicit source='jasmin'; use a separate cache or source='auto'"
+                )
 
         return CAMSResult(
             scene_date=target.scene_date,
             requested_source=target.requested_source,
-            resolved_source="jasmin",
+            resolved_source=resolved_source,
             base_dir=target.cache_root,
             date_dir=date_dir,
             files=paths,
-            source_url=JASMIN_BASE_URL,
+            source_url=resolved_url,
             retrieved_at=datetime.now(timezone.utc),
             cache_hit=cache_hit,
         )
@@ -270,6 +300,12 @@ class CAMSConnector(Connector):
                 if not tmp.exists() or tmp.stat().st_size == 0:
                     raise CAMSProviderError("ADS retrieval completed without a non-empty output file")
                 tmp.replace(path)
+                _write_source_manifest(
+                    date_dir,
+                    "ads",
+                    f"{ADS_API_URL}/retrieve/v1/processes/{ADS_DATASET}",
+                    (path,),
+                )
             except CAMSProviderError:
                 tmp.unlink(missing_ok=True)
                 raise
@@ -362,6 +398,41 @@ def _cds_client(url: str, token: str):
 def _looks_like_no_data(message: str) -> bool:
     lowered = message.lower()
     return any(marker in lowered for marker in ("no data", "not available", "no matching data"))
+
+
+def _manifest_path(date_dir: Path) -> Path:
+    return date_dir / "spectraccess-cams-source.json"
+
+
+def _write_source_manifest(
+    date_dir: Path, source: Literal["jasmin", "ads"], source_url: str | None, files: tuple[Path, ...]
+) -> None:
+    payload = {
+        "schema": "spectraccess-cams-source-v1",
+        "resolved_source": source,
+        "source_url": source_url,
+        "assets": [path.name for path in files],
+        "recorded_at": datetime.now(timezone.utc).isoformat(),
+    }
+    path = _manifest_path(date_dir)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    tmp.replace(path)
+
+
+def _read_source_manifest(date_dir: Path) -> dict[str, object] | None:
+    path = _manifest_path(date_dir)
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise CAMSProviderError(
+            f"invalid CAMS cache provenance manifest ({type(exc).__name__})"
+        ) from None
+    if payload.get("schema") != "spectraccess-cams-source-v1":
+        raise CAMSProviderError("unsupported CAMS cache provenance manifest schema")
+    return payload
 
 
 def _as_utc(value: datetime) -> datetime:

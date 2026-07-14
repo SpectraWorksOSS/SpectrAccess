@@ -34,12 +34,13 @@ def _write_jasmin_family(root: Path) -> tuple[Path, ...]:
 def test_cached_jasmin_result_has_explicit_base_and_date_contract(tmp_path):
     paths = _write_jasmin_family(tmp_path)
 
-    result = CAMSConnector(cache_dir=tmp_path, source="jasmin").resolve(SCENE_DATE)
+    result = CAMSConnector(cache_dir=tmp_path, source="auto").resolve(SCENE_DATE)
 
     assert result.base_dir == tmp_path
     assert result.date_dir == tmp_path / DATE_LABEL
     assert result.files == paths
-    assert result.resolved_source == "jasmin"
+    assert result.resolved_source == "cache-unknown"
+    assert result.source_url is None
     assert result.cache_hit is True
     siac_path = result.base_dir / DATE_LABEL / f"{DATE_LABEL}_aod550.tif"
     assert siac_path == paths[0]
@@ -71,7 +72,7 @@ def test_auto_prefers_jasmin_without_touching_ads(tmp_path, monkeypatch):
 
     result = connector.resolve(SCENE_DATE)
 
-    assert result.resolved_source == "jasmin"
+    assert result.resolved_source == "cache-unknown"
     ads.assert_not_called()
 
 
@@ -161,3 +162,48 @@ def test_ads_errors_redact_token(tmp_path, monkeypatch):
     with pytest.raises(CAMSProviderError) as caught:
         CAMSConnector(cache_dir=tmp_path, source="ads", ads_token=token).resolve(SCENE_DATE)
     assert token not in str(caught.value)
+
+
+def test_new_jasmin_fetch_records_actual_fallback_origin(tmp_path, monkeypatch):
+    connector = CAMSConnector(
+        cache_dir=tmp_path,
+        source="jasmin",
+        fallback_url="https://fallback.example/cams",
+        max_attempts=1,
+    )
+    monkeypatch.setattr(
+        connector,
+        "_date_available",
+        lambda base, label: base == "https://fallback.example/cams",
+    )
+
+    def fake_download(url, path):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"fixture")
+
+    monkeypatch.setattr(connector, "_download", fake_download)
+    result = connector.resolve(SCENE_DATE)
+
+    assert result.resolved_source == "jasmin"
+    assert result.source_url == "https://fallback.example/cams"
+    manifest = (result.date_dir / "spectraccess-cams-source.json").read_text()
+    assert "fallback.example" in manifest
+
+
+def test_ads_cache_manifest_prevents_false_jasmin_attribution(tmp_path):
+    date_dir = tmp_path / DATE_LABEL
+    date_dir.mkdir(parents=True)
+    for name in ("aod550", "tcwv", "gtco3"):
+        (date_dir / f"{DATE_LABEL}_{name}.tif").write_bytes(b"fixture")
+    raw = date_dir / f"cams_eac4_{DATE_LABEL}.nc"
+    raw.write_bytes(b"netcdf")
+    (date_dir / "spectraccess-cams-source.json").write_text(
+        '{"schema":"spectraccess-cams-source-v1","resolved_source":"ads",'
+        '"source_url":"https://ads.example"}'
+    )
+
+    result = CAMSConnector(cache_dir=tmp_path, source="auto", ads_token="secret").resolve(SCENE_DATE)
+
+    assert result.resolved_source == "ads"
+    assert result.source_url == "https://ads.example"
+    assert raw in result.files
