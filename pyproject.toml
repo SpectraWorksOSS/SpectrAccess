@@ -40,9 +40,15 @@ Issues = "https://github.com/SpectraWorksOSS/SpectrAccess/issues"
 [project.optional-dependencies]
 # Reserved for a future opt-in RefCal uncertainty-provider integration.
 refcal = []
+cdse = [
+  "cdsetool>=0.3.1,<0.4",
+]
 test = [
   "pytest>=8",
   "requests-mock>=1.11",
+  # Exercise the real maintained-client adapter in fixture tests. Runtime
+  # users who need this connector install spectraccess[cdse].
+  "cdsetool>=0.3.1,<0.4",
 ]
 
 [tool.pytest.ini_options]

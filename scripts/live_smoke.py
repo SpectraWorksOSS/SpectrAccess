@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import os
 import sys
+from datetime import datetime, timezone
 
 from spectraccess.connectors.gsics.connector import DEFAULT_CATALOGS, GSICSCatalog, GSICSConnector
 from spectraccess.connectors.modis_viirs_cal.connector import VIIRSCatalog, VIIRSCalibrationConnector
 from spectraccess.connectors.radcalnet import RadCalNetConnector
+from spectraccess.connectors.sentinel2_cdse import Sentinel2CDSEConnector, target_to_canonical
 
 
 _GSICS_ENV_OVERRIDES = {
@@ -141,6 +143,36 @@ def smoke_radcalnet() -> None:
     print(f"RadCalNet parse_canonical: shape={canonical.shape}, unc_status={statuses}")
 
 
+def smoke_sentinel2_cdse() -> None:
+    # Catalogue discovery is public. Keep the scheduled smoke metadata-only:
+    # downloading this ~757 MB fixture would need credentials and would turn a
+    # portal-health check into recurring provider spend/transfer.
+    connector = Sentinel2CDSEConnector(max_attempts=2)
+    targets = connector.discover(
+        mgrs_tile="31UFT",
+        start=datetime(2024, 5, 1, tzinfo=timezone.utc),
+        end=datetime(2024, 5, 1, tzinfo=timezone.utc),
+        max_cloud_cover=20,
+        limit=5,
+    )
+    fixture_id = "d085d39b-03e2-486d-ae2a-0c8deca9bdc0"
+    matching = [target for target in targets if target.product_id == fixture_id]
+    if not matching:
+        raise RuntimeError(
+            f"Sentinel-2 CDSE discovery did not return pinned fixture {fixture_id}; "
+            f"got {[target.product_id for target in targets]}"
+        )
+    canonical = target_to_canonical(matching[0])
+    if canonical.attrs.get("spectraccess_schema_version") is None:
+        raise RuntimeError("Sentinel-2 CDSE canonical frame is not schema-stamped")
+    if canonical.loc[0, "unc_status"] != "unknown":
+        raise RuntimeError("Sentinel-2 CDSE cloud-cover uncertainty was not labelled unknown")
+    print(
+        "Sentinel-2 CDSE discovery: "
+        f"{matching[0].title}, cloud_cover={matching[0].cloud_cover:.3f}%"
+    )
+
+
 def main() -> int:
     connector = sys.argv[1] if len(sys.argv) > 1 else ""
     if connector == "gsics":
@@ -149,6 +181,8 @@ def main() -> int:
         smoke_viirs()
     elif connector == "radcalnet":
         smoke_radcalnet()
+    elif connector == "sentinel2_cdse":
+        smoke_sentinel2_cdse()
     else:
         raise SystemExit(f"unknown connector {connector!r}")
     return 0

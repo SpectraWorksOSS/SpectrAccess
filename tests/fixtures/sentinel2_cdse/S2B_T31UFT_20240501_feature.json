@@ -1,0 +1,47 @@
+{
+  "@odata.mediaContentType": "application/octet-stream",
+  "Id": "d085d39b-03e2-486d-ae2a-0c8deca9bdc0",
+  "Name": "S2B_MSIL1C_20240501T103619_N0510_R008_T31UFT_20240501T131918.SAFE",
+  "ContentType": "application/octet-stream",
+  "ContentLength": 756691750,
+  "OriginDate": "2024-05-01T14:17:48.000000Z",
+  "PublicationDate": "2024-05-01T14:34:32.051096Z",
+  "ModificationDate": "2026-05-13T03:33:26.445983Z",
+  "Online": true,
+  "S3Path": "/eodata/Sentinel-2/MSI/L1C/2024/05/01/S2B_MSIL1C_20240501T103619_N0510_R008_T31UFT_20240501T131918.SAFE",
+  "Checksum": [
+    {
+      "Value": "69bb891d68cdfdd72b59d1e892d75916",
+      "Algorithm": "MD5",
+      "ChecksumDate": "2026-05-13T03:33:24.147727Z"
+    },
+    {
+      "Value": "aa416d4866a67b6f958f12f6cafd859205a45342b645abb20408b61c9c8ea74a",
+      "Algorithm": "BLAKE3",
+      "ChecksumDate": "2026-05-13T03:33:25.337952Z"
+    }
+  ],
+  "ContentDate": {
+    "Start": "2024-05-01T10:36:19.024000Z",
+    "End": "2024-05-01T10:36:19.024000Z"
+  },
+  "Footprint": "geography'SRID=4326;POLYGON ((4.436637852600691 51.37051002083518, 4.436120625123461 51.3544393902669, 6.011254122594852 51.32452335478603, 6.077757925309448 52.31036691499413, 4.841579753130217 52.33416189518594, 4.801374217783819 52.2398093278838, 4.739569986931238 52.09411554743252, 4.677904128908915 51.94836245636606, 4.616475902327223 51.80259517066581, 4.555393155940819 51.65679762396545, 4.494745826574451 51.51097012198581, 4.436637852600691 51.37051002083518))'",
+  "Attributes": [
+    {"Name": "origin", "Value": "ESA", "ValueType": "String"},
+    {"Name": "tileId", "Value": "31UFT", "ValueType": "String"},
+    {"Name": "cloudCover", "Value": 18.327762365519, "ValueType": "Double"},
+    {"Name": "processingDate", "Value": "2024-05-01T13:19:18.000000Z", "ValueType": "DateTimeOffset"},
+    {"Name": "productGroupId", "Value": "GS2B_20240501T103619_037357_N05.10", "ValueType": "String"},
+    {"Name": "processingLevel", "Value": "S2MSI1C", "ValueType": "String"},
+    {"Name": "processorVersion", "Value": "05.10", "ValueType": "String"},
+    {"Name": "granuleIdentifier", "Value": "S2B_OPER_MSI_L1C_TL_2BPS_20240501T131918_A037357_T31UFT_N05.10", "ValueType": "String"},
+    {"Name": "platformShortName", "Value": "SENTINEL-2", "ValueType": "String"},
+    {"Name": "instrumentShortName", "Value": "MSI", "ValueType": "String"},
+    {"Name": "relativeOrbitNumber", "Value": 8, "ValueType": "Integer"},
+    {"Name": "platformSerialIdentifier", "Value": "B", "ValueType": "String"},
+    {"Name": "productType", "Value": "S2MSI1C", "ValueType": "String"},
+    {"Name": "beginningDateTime", "Value": "2024-05-01T10:36:19.024000Z", "ValueType": "DateTimeOffset"},
+    {"Name": "endingDateTime", "Value": "2024-05-01T10:36:19.024000Z", "ValueType": "DateTimeOffset"}
+  ],
+  "Collection": "SENTINEL-2"
+}

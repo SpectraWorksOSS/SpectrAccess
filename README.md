@@ -14,6 +14,13 @@ For local development:
 pip install -e ".[test]"
 ```
 
+Large-archive adapters keep their maintained provider clients optional. For
+Sentinel-2 discovery and download through CDSETool:
+
+```bash
+pip install "spectraccess[cdse]"
+```
+
 ## Quickstart
 
 ```python
@@ -34,6 +41,7 @@ print(table.head())
 | GSICS GPPA | Available (EUMETSAT live, verified end-to-end; CMA catalog live but content-empty as of 2026-07-05; NOAA STAR pending, host unreachable 2026-07-05) | None for public THREDDS catalogs |
 | MODIS/VIIRS calibration LUT | VIIRS connector shape available; NOAA STAR F-factor THREDDS URL pending verification; MODIS planned | None for public VIIRS THREDDS; MODIS source design pending |
 | RadCalNet | Available (official JSON API; live-verified) | Free portal account; HTTP Basic auth via BYO credentials |
+| Sentinel-2 CDSE | Available (thin adapter over maintained `cdsetool`; public discovery, BYO-credential download) | None for catalogue discovery; free CDSE account for product download |
 
 NOAA/NESDIS GSICS products are also mirrored on the EUMETSAT collaboration server's master THREDDS catalog (`nesdisProducts.xml`), so some NESDIS product families may already be reachable via the EUMETSAT connector default even while the canonical NOAA STAR host is down.
 
@@ -72,6 +80,14 @@ values are `provided`; negative values are climatological magnitudes and are
 therefore `prior`; fill or absent values are `unknown`. RadCalNet R2 does not
 state a coverage factor, so `toa_reflectance_unc_k` and canonical `unc_k` stay
 null. spectrAccess never substitutes a fixed percentage or assumes `k=1`.
+
+The Sentinel-2 CDSE connector canonicalizes the provider's scene cloud-cover
+metadata as `quantity="scene_cloud_cover"`. CDSE does not publish a numerical
+uncertainty for that field, so it is honestly labelled `unc_status="unknown"`
+with null `unc_value`, `unc_k`, and `unc_provider`. Product identity, footprint,
+processing version, catalogue/download URLs, and the exact provider metadata
+remain attached as provenance. spectrAccess does not parse SAFE pixels or
+reimplement CDSE transport; those stay with CDSETool and downstream consumers.
 
 Call `spectraccess.core.schema.validate(df)` to check a frame against the schema; it raises
 `SchemaError` naming every violation found. Extra, connector-specific columns are always
