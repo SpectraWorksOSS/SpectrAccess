@@ -23,15 +23,18 @@ from typing import Literal, Mapping
 
 import pandas as pd
 
+from spectraccess.core.assumptions import AssumptionBasis, AssumptionRecord
 from spectraccess.core.connector import Connector
 
-CAMSMode = Literal["auto", "jasmin", "ads"]
+CAMSMode = Literal["auto", "jasmin", "ads", "ads-forecast"]
 CAMSResolvedSource = Literal["jasmin", "ads", "cache-unknown"]
 
 JASMIN_BASE_URL = "https://gws-access.jasmin.ac.uk/public/nceo_ard/cams/"
 ADS_API_URL = "https://ads.atmosphere.copernicus.eu/api"
 ADS_DATASET = "cams-global-reanalysis-eac4"
 ADS_RETRIEVE_URL = f"{ADS_API_URL}/retrieve/v1/processes/{ADS_DATASET}"
+ADS_FORECAST_DATASET = "cams-global-atmospheric-composition-forecasts"
+ADS_FORECAST_RETRIEVE_URL = f"{ADS_API_URL}/retrieve/v1/processes/{ADS_FORECAST_DATASET}"
 ADS_VARIABLES = (
     "total_aerosol_optical_depth_550nm",
     "total_column_water_vapour",
@@ -39,7 +42,18 @@ ADS_VARIABLES = (
 )
 SIAC_VARIABLES = ("aod550", "tcwv", "gtco3")
 ADS_TIMES = ("00:00", "03:00", "06:00", "09:00", "12:00", "15:00", "18:00", "21:00")
+ADS_FORECAST_CYCLES = ("00:00", "12:00")
 _MANIFEST_CLOCK_SKEW = timedelta(minutes=5)
+
+CAMS_FORECAST_INPUT_NOT_EAC4_REANALYSIS = AssumptionRecord(
+    assumption_id="cams_forecast_input_not_eac4_reanalysis",
+    statement="CAMS forecast/NRT input is not EAC4 reanalysis.",
+    basis=AssumptionBasis.OPERATOR_DECLARED,
+    resolves_when=(
+        "overlap validation establishes a versioned NRT-to-EAC4 comparability policy, "
+        "or the scene is excluded from cross-product claims."
+    ),
+)
 
 
 class CAMSConnectorError(RuntimeError):
@@ -96,6 +110,9 @@ class CAMSResult:
     retrieved_at: datetime | None
     cache_hit: bool
     dataset: str | None = None
+    forecast_cycle: str | None = None
+    forecast_lead_time_hours: int | None = None
+    assumptions: tuple[AssumptionRecord, ...] = ()
 
     def __post_init__(self) -> None:
         expected = self.base_dir / self.scene_date.strftime("%Y_%m_%d")
@@ -103,6 +120,22 @@ class CAMSResult:
             raise ValueError(
                 f"date_dir must equal base_dir/YYYY_MM_DD ({expected}), got {self.date_dir}"
             )
+        if self.forecast_cycle is not None and self.forecast_cycle not in ADS_FORECAST_CYCLES:
+            raise ValueError(f"unsupported CAMS forecast cycle {self.forecast_cycle!r}")
+        if self.forecast_lead_time_hours is not None and self.forecast_lead_time_hours <= 0:
+            raise ValueError("CAMS forecast lead time must be non-zero")
+
+    @property
+    def stratum(self) -> Literal["eac4-reanalysis", "forecast-nrt", "other"]:
+        if self.dataset == ADS_DATASET:
+            return "eac4-reanalysis"
+        if self.dataset == ADS_FORECAST_DATASET:
+            return "forecast-nrt"
+        return "other"
+
+    @property
+    def assumption_ids(self) -> tuple[str, ...]:
+        return tuple(record.assumption_id for record in self.assumptions)
 
 
 class CAMSConnector(Connector):
@@ -120,6 +153,8 @@ class CAMSConnector(Connector):
         cache_dir: str | Path | None = None,
         source: CAMSMode | None = None,
         ads_token: str | None = None,
+        forecast_cycle: str | None = None,
+        forecast_lead_time_hours: int | None = None,
         fallback_url: str | None = None,
         max_attempts: int = 4,
         retry_delay_seconds: float = 5.0,
@@ -127,8 +162,10 @@ class CAMSConnector(Connector):
         read_timeout_seconds: float = 120.0,
     ) -> None:
         configured = (source or os.environ.get("CAMS_SOURCE", "auto")).strip().lower()
-        if configured not in {"auto", "jasmin", "ads"}:
-            raise ValueError(f"unsupported CAMS source {configured!r}; use auto, jasmin, or ads")
+        if configured not in {"auto", "jasmin", "ads", "ads-forecast"}:
+            raise ValueError(
+                f"unsupported CAMS source {configured!r}; use auto, jasmin, ads, or ads-forecast"
+            )
         if max_attempts < 1:
             raise ValueError("max_attempts must be >= 1")
         self.source: CAMSMode = configured  # type: ignore[assignment]
@@ -138,6 +175,23 @@ class CAMSConnector(Connector):
             or Path.home() / ".cache" / "spectraccess" / "cams"
         )
         self.ads_token = (ads_token or os.environ.get("ADS_TOKEN", "")).strip() or None
+        configured_cycle = forecast_cycle or os.environ.get("CAMS_FORECAST_CYCLE", "")
+        configured_lead = forecast_lead_time_hours
+        if configured_lead is None and os.environ.get("CAMS_FORECAST_LEAD_HOURS", "").strip():
+            configured_lead = int(os.environ["CAMS_FORECAST_LEAD_HOURS"])
+        if configured == "ads-forecast":
+            if configured_cycle not in ADS_FORECAST_CYCLES:
+                raise ValueError(
+                    "ads-forecast requires forecast_cycle '00:00' or '12:00' "
+                    "(or CAMS_FORECAST_CYCLE)"
+                )
+            if configured_lead is None or configured_lead <= 0:
+                raise ValueError(
+                    "ads-forecast requires a non-zero forecast_lead_time_hours "
+                    "(or CAMS_FORECAST_LEAD_HOURS) selected by overlap evidence"
+                )
+        self.forecast_cycle = configured_cycle or None
+        self.forecast_lead_time_hours = configured_lead
         self.fallback_url = (
             fallback_url
             if fallback_url is not None
@@ -160,8 +214,16 @@ class CAMSConnector(Connector):
         **_kwargs: object,
     ) -> list[CAMSTarget]:
         mode = source or self.source
-        if mode not in {"auto", "jasmin", "ads"}:
+        if mode not in {"auto", "jasmin", "ads", "ads-forecast"}:
             raise ValueError(f"unsupported CAMS source {mode!r}")
+        if mode == "ads-forecast" and (
+            self.forecast_cycle not in ADS_FORECAST_CYCLES
+            or self.forecast_lead_time_hours is None
+            or self.forecast_lead_time_hours <= 0
+        ):
+            raise ValueError(
+                "ads-forecast requires an explicit supported cycle and non-zero lead time"
+            )
         return [CAMSTarget(_as_utc(scene_date), mode, self.cache_dir)]
 
     def fetch(self, target: CAMSTarget, **_kwargs: object) -> CAMSResult:
@@ -169,6 +231,8 @@ class CAMSConnector(Connector):
             return self._fetch_jasmin(target)
         if target.requested_source == "ads":
             return self._fetch_ads(target)
+        if target.requested_source == "ads-forecast":
+            return self._fetch_ads_forecast(target)
 
         try:
             return self._fetch_jasmin(target)
@@ -202,6 +266,10 @@ class CAMSConnector(Connector):
                     "requested_source": raw.requested_source,
                     "resolved_source": raw.resolved_source,
                     "dataset": raw.dataset,
+                    "stratum": raw.stratum,
+                    "forecast_cycle": raw.forecast_cycle,
+                    "forecast_lead_time_hours": raw.forecast_lead_time_hours,
+                    "assumptions": list(raw.assumption_ids),
                     "source_url": raw.source_url,
                     "retrieved_at": raw.retrieved_at,
                     "cache_hit": raw.cache_hit,
@@ -407,6 +475,93 @@ class CAMSConnector(Connector):
             dataset=ADS_DATASET if resolved_source == "ads" else None,
         )
 
+    def _fetch_ads_forecast(self, target: CAMSTarget) -> CAMSResult:
+        if not self.ads_token:
+            raise CAMSCredentialsError(
+                "ADS personal access token is required; pass ads_token or set ADS_TOKEN"
+            )
+        cycle = self.forecast_cycle
+        lead_time_hours = self.forecast_lead_time_hours
+        if cycle not in ADS_FORECAST_CYCLES or lead_time_hours is None or lead_time_hours <= 0:
+            raise ValueError("ads-forecast requires a supported cycle and non-zero lead time")
+        cache_base = target.cache_root / "forecast" / f"cycle-{cycle[:2]}_lead-{lead_time_hours}"
+        date_dir = cache_base / target.date_label
+        path = date_dir / f"cams_forecast_{target.date_label}_{cycle[:2]}_lead-{lead_time_hours}.nc"
+        cache_hit = path.exists()
+        resolved_source: CAMSResolvedSource
+        resolved_url: str | None
+        retrieved_at: datetime | None
+        if not cache_hit:
+            date_dir.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_name(f".{path.name}.part")
+            request = {
+                "variable": list(ADS_VARIABLES),
+                "date": [target.scene_date.strftime("%Y-%m-%d")],
+                "time": [cycle],
+                "leadtime_hour": [str(lead_time_hours)],
+                "type": ["forecast"],
+                "data_format": "netcdf",
+            }
+            try:
+                client = _cds_client(ADS_API_URL, self.ads_token)
+                client.retrieve(ADS_FORECAST_DATASET, request, str(tmp))
+                if not tmp.exists() or tmp.stat().st_size == 0:
+                    raise CAMSProviderError("ADS forecast retrieval completed without a non-empty output file")
+                tmp.replace(path)
+                manifest = _write_source_manifest(
+                    date_dir,
+                    "ads",
+                    ADS_FORECAST_RETRIEVE_URL,
+                    (path,),
+                    dataset=ADS_FORECAST_DATASET,
+                    forecast_cycle=cycle,
+                    forecast_lead_time_hours=lead_time_hours,
+                    assumptions=(CAMS_FORECAST_INPUT_NOT_EAC4_REANALYSIS,),
+                    allowed_source_urls={"ads": (ADS_FORECAST_RETRIEVE_URL,)},
+                )
+                resolved_source = manifest.resolved_source
+                resolved_url = manifest.source_url
+                retrieved_at = manifest.recorded_at
+            except CAMSProviderError:
+                tmp.unlink(missing_ok=True)
+                raise
+            except Exception as exc:
+                tmp.unlink(missing_ok=True)
+                raise CAMSProviderError(
+                    f"ADS forecast retrieval failed for {target.scene_date.date()} ({type(exc).__name__})"
+                ) from None
+        else:
+            manifest = _read_source_manifest(
+                date_dir,
+                expected_source="ads",
+                expected_assets=(path.name,),
+                expected_dataset=ADS_FORECAST_DATASET,
+                expected_forecast_cycle=cycle,
+                expected_forecast_lead_time_hours=lead_time_hours,
+                allowed_source_urls={"ads": (ADS_FORECAST_RETRIEVE_URL,)},
+            )
+            if manifest is None:
+                raise CAMSProviderError("forecast cache lacks immutable provenance manifest")
+            resolved_source = manifest.resolved_source
+            resolved_url = manifest.source_url
+            retrieved_at = manifest.recorded_at
+
+        return CAMSResult(
+            scene_date=target.scene_date,
+            requested_source=target.requested_source,
+            resolved_source=resolved_source,
+            base_dir=cache_base,
+            date_dir=date_dir,
+            files=(path,),
+            source_url=resolved_url,
+            retrieved_at=retrieved_at,
+            cache_hit=cache_hit,
+            dataset=ADS_FORECAST_DATASET,
+            forecast_cycle=cycle,
+            forecast_lead_time_hours=lead_time_hours,
+            assumptions=(CAMS_FORECAST_INPUT_NOT_EAC4_REANALYSIS,),
+        )
+
     def _date_available(self, base: str, date_label: str) -> bool:
         for name in SIAC_VARIABLES:
             url = f"{base}/{date_label}/{date_label}_{name}.tif"
@@ -479,6 +634,10 @@ class _SourceManifest:
     source_url: str
     assets: tuple[str, ...]
     recorded_at: datetime
+    dataset: str | None = None
+    forecast_cycle: str | None = None
+    forecast_lead_time_hours: int | None = None
+    assumption_ids: tuple[str, ...] = ()
 
 
 def _write_source_manifest(
@@ -487,15 +646,26 @@ def _write_source_manifest(
     source_url: str | None,
     files: tuple[Path, ...],
     *,
+    dataset: str | None = None,
+    forecast_cycle: str | None = None,
+    forecast_lead_time_hours: int | None = None,
+    assumptions: tuple[AssumptionRecord, ...] = (),
     allowed_source_urls: Mapping[str, tuple[str, ...]],
 ) -> _SourceManifest:
     payload = {
-        "schema": "spectraccess-cams-source-v1",
+        "schema": "spectraccess-cams-source-v2" if dataset is not None else "spectraccess-cams-source-v1",
         "resolved_source": source,
         "source_url": source_url,
         "assets": [path.name for path in files],
         "recorded_at": datetime.now(timezone.utc).isoformat(),
     }
+    if dataset is not None:
+        payload.update(
+            dataset=dataset,
+            forecast_cycle=forecast_cycle,
+            forecast_lead_time_hours=forecast_lead_time_hours,
+            assumptions=[record.assumption_id for record in assumptions],
+        )
     path = _manifest_path(date_dir)
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
@@ -504,6 +674,9 @@ def _write_source_manifest(
         date_dir,
         expected_source=source,
         expected_assets=tuple(file.name for file in files),
+        expected_dataset=dataset,
+        expected_forecast_cycle=forecast_cycle,
+        expected_forecast_lead_time_hours=forecast_lead_time_hours,
         allowed_source_urls=allowed_source_urls,
     )
     if manifest is None:  # pragma: no cover - path was just atomically written
@@ -516,6 +689,9 @@ def _read_source_manifest(
     *,
     expected_source: Literal["jasmin", "ads"] | None = None,
     expected_assets: tuple[str, ...] | None = None,
+    expected_dataset: str | None = None,
+    expected_forecast_cycle: str | None = None,
+    expected_forecast_lead_time_hours: int | None = None,
     allowed_source_urls: Mapping[str, tuple[str, ...]],
 ) -> _SourceManifest | None:
     path = _manifest_path(date_dir)
@@ -529,7 +705,8 @@ def _read_source_manifest(
         ) from None
     if not isinstance(payload, dict):
         raise CAMSProviderError("CAMS cache provenance manifest must be a JSON object")
-    if payload.get("schema") != "spectraccess-cams-source-v1":
+    schema = payload.get("schema")
+    if schema not in {"spectraccess-cams-source-v1", "spectraccess-cams-source-v2"}:
         raise CAMSProviderError("unsupported CAMS cache provenance manifest schema")
     source = payload.get("resolved_source")
     if source not in {"jasmin", "ads"}:
@@ -581,11 +758,44 @@ def _read_source_manifest(
     if recorded_at > datetime.now(timezone.utc) + _MANIFEST_CLOCK_SKEW:
         raise CAMSProviderError("CAMS cache provenance recorded_at is implausibly in the future")
 
+    dataset: str | None = None
+    forecast_cycle: str | None = None
+    forecast_lead_time_hours: int | None = None
+    assumption_ids: tuple[str, ...] = ()
+    if schema == "spectraccess-cams-source-v2":
+        dataset = payload.get("dataset")
+        forecast_cycle = payload.get("forecast_cycle")
+        forecast_lead_time_hours = payload.get("forecast_lead_time_hours")
+        raw_assumptions = payload.get("assumptions")
+        if (
+            not isinstance(dataset, str)
+            or dataset != ADS_FORECAST_DATASET
+            or forecast_cycle not in ADS_FORECAST_CYCLES
+            or not isinstance(forecast_lead_time_hours, int)
+            or forecast_lead_time_hours <= 0
+            or raw_assumptions != [CAMS_FORECAST_INPUT_NOT_EAC4_REANALYSIS.assumption_id]
+        ):
+            raise CAMSProviderError("invalid CAMS forecast cache provenance manifest")
+        assumption_ids = tuple(raw_assumptions)
+    if expected_dataset is not None and dataset != expected_dataset:
+        raise CAMSProviderError("CAMS cache provenance dataset does not match requested product")
+    if expected_forecast_cycle is not None and forecast_cycle != expected_forecast_cycle:
+        raise CAMSProviderError("CAMS cache provenance cycle does not match requested forecast")
+    if (
+        expected_forecast_lead_time_hours is not None
+        and forecast_lead_time_hours != expected_forecast_lead_time_hours
+    ):
+        raise CAMSProviderError("CAMS cache provenance lead time does not match requested forecast")
+
     return _SourceManifest(
         resolved_source=source,
         source_url=source_url,
         assets=assets,
         recorded_at=recorded_at,
+        dataset=dataset,
+        forecast_cycle=forecast_cycle,
+        forecast_lead_time_hours=forecast_lead_time_hours,
+        assumption_ids=assumption_ids,
     )
 
 

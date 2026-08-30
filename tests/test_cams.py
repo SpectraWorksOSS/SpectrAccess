@@ -1,21 +1,29 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import Mock
 
+import numpy as np
 import pytest
+import xarray as xr
 
 from spectraccess.connectors.cams import (
     ADS_DATASET,
+    ADS_FORECAST_DATASET,
     CAMSADSDateNotFoundError,
     CAMSConnector,
     CAMSDateUnavailableError,
     CAMSProviderError,
     CAMSResult,
+    CAMS_FORECAST_INPUT_NOT_EAC4_REANALYSIS,
+    compare_candidate_leads,
+    compare_eac4_forecast_overlap,
 )
 from spectraccess.connectors.cams import connector as cams_module
+from spectraccess.core.assumptions import AssumptionBasis
 
 
 SCENE_DATE = datetime(2025, 10, 4, 10, 36, tzinfo=timezone.utc)
@@ -23,6 +31,16 @@ DATE_LABEL = "2025_10_04"
 RECORDED_AT = "2025-10-05T12:34:56+00:00"
 JASMIN_SOURCE_URL = cams_module.JASMIN_BASE_URL.rstrip("/")
 ADS_SOURCE_URL = f"{cams_module.ADS_API_URL}/retrieve/v1/processes/{ADS_DATASET}"
+
+
+def test_assumption_basis_matches_the_five_value_contract():
+    assert {basis.value for basis in AssumptionBasis} == {
+        "documented",
+        "inferred_from_absence",
+        "operator_declared",
+        "placeholder",
+        "derived_from_chain",
+    }
 
 
 def _write_jasmin_family(root: Path) -> tuple[Path, ...]:
@@ -174,6 +192,243 @@ def test_ads_uses_maintained_client_and_preserves_provenance(tmp_path, monkeypat
     assert frame.loc[0, "resolved_source"] == "ads"
     assert frame.loc[0, "dataset"] == ADS_DATASET
     assert "secret" not in frame.to_string()
+
+
+def test_forecast_requires_explicit_cycle_and_nonzero_lead(tmp_path):
+    with pytest.raises(ValueError, match="requires forecast_cycle"):
+        CAMSConnector(cache_dir=tmp_path, source="ads-forecast", ads_token="secret")
+    with pytest.raises(ValueError, match="non-zero forecast_lead_time_hours"):
+        CAMSConnector(
+            cache_dir=tmp_path,
+            source="ads-forecast",
+            ads_token="secret",
+            forecast_cycle="00:00",
+            forecast_lead_time_hours=0,
+        )
+
+
+def test_forecast_request_has_cycle_nonzero_lead_and_immutable_provenance(tmp_path, monkeypatch):
+    calls = {}
+
+    class FakeClient:
+        def retrieve(self, dataset, request, target):
+            calls.update(dataset=dataset, request=request)
+            Path(target).write_bytes(b"forecast-netcdf")
+
+    monkeypatch.setattr(cams_module, "_cds_client", lambda url, token: FakeClient())
+    result = CAMSConnector(
+        cache_dir=tmp_path,
+        source="ads-forecast",
+        ads_token="secret",
+        forecast_cycle="12:00",
+        forecast_lead_time_hours=3,
+    ).resolve(SCENE_DATE)
+    frame = CAMSConnector(cache_dir=tmp_path, source="ads-forecast", ads_token="secret", forecast_cycle="12:00", forecast_lead_time_hours=3).parse(result)
+
+    assert calls["dataset"] == ADS_FORECAST_DATASET
+    assert calls["request"] == {
+        "variable": list(cams_module.ADS_VARIABLES),
+        "date": ["2025-10-04"],
+        "time": ["12:00"],
+        "leadtime_hour": ["3"],
+        "type": ["forecast"],
+        "data_format": "netcdf",
+    }
+    assert result.stratum == "forecast-nrt"
+    assert result.forecast_cycle == "12:00"
+    assert result.forecast_lead_time_hours == 3
+    assert result.assumption_ids == ("cams_forecast_input_not_eac4_reanalysis",)
+    assert frame.loc[0, "assumptions"] == ["cams_forecast_input_not_eac4_reanalysis"]
+    manifest = json.loads((result.date_dir / "spectraccess-cams-source.json").read_text())
+    assert manifest["dataset"] == ADS_FORECAST_DATASET
+    assert manifest["forecast_cycle"] == "12:00"
+    assert manifest["forecast_lead_time_hours"] == 3
+    assert manifest["assumptions"] == ["cams_forecast_input_not_eac4_reanalysis"]
+
+
+def _write_overlap_file(path: Path, *, offset: float) -> None:
+    values = np.full((1, 2, 2), offset, dtype=float)
+    dataset = xr.Dataset(
+        {
+            variable: xr.DataArray(
+                values + index,
+                dims=("time", "latitude", "longitude"),
+                coords={
+                    "time": [np.datetime64("2025-10-04T03:00:00")],
+                    "latitude": [0.0, 1.0],
+                    "longitude": [0.0, 1.0],
+                },
+                attrs={"units": unit},
+            )
+            for index, (variable, unit) in enumerate(
+                zip(cams_module.ADS_VARIABLES, ("1", "kg m**-2", "kg m**-2"))
+            )
+        }
+    )
+    dataset.to_netcdf(path, engine="scipy")
+
+
+def test_overlap_comparator_keeps_eac4_and_forecast_separate(tmp_path):
+    eac4_dir = tmp_path / DATE_LABEL
+    forecast_base = tmp_path / "forecast" / "cycle-00_lead-3"
+    forecast_dir = forecast_base / DATE_LABEL
+    eac4_dir.mkdir(parents=True)
+    forecast_dir.mkdir(parents=True)
+    eac4_file = eac4_dir / "eac4.nc"
+    forecast_file = forecast_dir / "forecast.nc"
+    _write_overlap_file(eac4_file, offset=1.0)
+    _write_overlap_file(forecast_file, offset=2.0)
+    eac4 = CAMSResult(
+        scene_date=SCENE_DATE,
+        requested_source="ads",
+        resolved_source="ads",
+        base_dir=tmp_path,
+        date_dir=eac4_dir,
+        files=(eac4_file,),
+        source_url="https://example.test/eac4",
+        retrieved_at=SCENE_DATE,
+        cache_hit=False,
+        dataset=ADS_DATASET,
+    )
+    forecast = CAMSResult(
+        scene_date=SCENE_DATE,
+        requested_source="ads-forecast",
+        resolved_source="ads",
+        base_dir=forecast_base,
+        date_dir=forecast_dir,
+        files=(forecast_file,),
+        source_url="https://example.test/forecast",
+        retrieved_at=SCENE_DATE,
+        cache_hit=False,
+        dataset=ADS_FORECAST_DATASET,
+        forecast_cycle="00:00",
+        forecast_lead_time_hours=3,
+        assumptions=(CAMS_FORECAST_INPUT_NOT_EAC4_REANALYSIS,),
+    )
+
+    comparison = compare_eac4_forecast_overlap(eac4, forecast)
+
+    assert comparison.valid_time == datetime(2025, 10, 4, 3, tzinfo=timezone.utc)
+    assert [row.mean_difference for row in comparison.variables] == [1.0, 1.0, 1.0]
+    assert comparison.variables[0].eac4_unit == comparison.variables[0].forecast_unit == "1"
+    assert compare_candidate_leads(eac4, [forecast]) == (comparison,)
+
+
+def test_overlap_comparator_accepts_ads_return_variable_names(tmp_path):
+    eac4_dir = tmp_path / DATE_LABEL
+    forecast_base = tmp_path / "forecast" / "cycle-00_lead-3"
+    forecast_dir = forecast_base / DATE_LABEL
+    eac4_dir.mkdir(parents=True)
+    forecast_dir.mkdir(parents=True)
+    eac4_file = eac4_dir / "eac4.nc"
+    forecast_file = forecast_dir / "forecast.nc"
+    _write_overlap_file(eac4_file, offset=1.0)
+    _write_overlap_file(forecast_file, offset=2.0)
+    returned_names = {
+        "total_aerosol_optical_depth_550nm": "aod550",
+        "total_column_water_vapour": "tcwv",
+        "total_column_ozone": "gtco3",
+    }
+    for path in (eac4_file, forecast_file):
+        with xr.open_dataset(path) as dataset:
+            dataset.rename(returned_names).to_netcdf(path.with_suffix(".tmp"), engine="scipy")
+        path.with_suffix(".tmp").replace(path)
+    eac4 = CAMSResult(
+        scene_date=SCENE_DATE,
+        requested_source="ads",
+        resolved_source="ads",
+        base_dir=tmp_path,
+        date_dir=eac4_dir,
+        files=(eac4_file,),
+        source_url="https://example.test/eac4",
+        retrieved_at=SCENE_DATE,
+        cache_hit=False,
+        dataset=ADS_DATASET,
+    )
+    forecast = CAMSResult(
+        scene_date=SCENE_DATE,
+        requested_source="ads-forecast",
+        resolved_source="ads",
+        base_dir=forecast_base,
+        date_dir=forecast_dir,
+        files=(forecast_file,),
+        source_url="https://example.test/forecast",
+        retrieved_at=SCENE_DATE,
+        cache_hit=False,
+        dataset=ADS_FORECAST_DATASET,
+        forecast_cycle="00:00",
+        forecast_lead_time_hours=3,
+        assumptions=(CAMS_FORECAST_INPUT_NOT_EAC4_REANALYSIS,),
+    )
+
+    comparison = compare_eac4_forecast_overlap(eac4, forecast)
+    assert [row.mean_difference for row in comparison.variables] == [1.0, 1.0, 1.0]
+
+
+def test_overlap_comparator_rejects_missing_forecast_assumption(tmp_path):
+    result = CAMSResult(
+        scene_date=SCENE_DATE,
+        requested_source="ads-forecast",
+        resolved_source="ads",
+        base_dir=tmp_path,
+        date_dir=tmp_path / DATE_LABEL,
+        files=(tmp_path / DATE_LABEL / "forecast.nc",),
+        source_url="https://example.test/forecast",
+        retrieved_at=SCENE_DATE,
+        cache_hit=False,
+        dataset=ADS_FORECAST_DATASET,
+        forecast_cycle="00:00",
+        forecast_lead_time_hours=3,
+    )
+    with pytest.raises(ValueError, match="assumption ID"):
+        compare_eac4_forecast_overlap(
+            replace(result, requested_source="ads", dataset=ADS_DATASET), result
+        )
+
+
+def test_overlap_comparator_makes_step_zero_aod_obvious(tmp_path):
+    eac4_dir = tmp_path / DATE_LABEL
+    forecast_base = tmp_path / "forecast" / "cycle-00_lead-3"
+    forecast_dir = forecast_base / DATE_LABEL
+    eac4_dir.mkdir(parents=True)
+    forecast_dir.mkdir(parents=True)
+    eac4_file = eac4_dir / "eac4.nc"
+    forecast_file = forecast_dir / "forecast.nc"
+    _write_overlap_file(eac4_file, offset=0.5)
+    _write_overlap_file(forecast_file, offset=0.0)
+    eac4 = CAMSResult(
+        scene_date=SCENE_DATE,
+        requested_source="ads",
+        resolved_source="ads",
+        base_dir=tmp_path,
+        date_dir=eac4_dir,
+        files=(eac4_file,),
+        source_url="https://example.test/eac4",
+        retrieved_at=SCENE_DATE,
+        cache_hit=False,
+        dataset=ADS_DATASET,
+    )
+    forecast = CAMSResult(
+        scene_date=SCENE_DATE,
+        requested_source="ads-forecast",
+        resolved_source="ads",
+        base_dir=forecast_base,
+        date_dir=forecast_dir,
+        files=(forecast_file,),
+        source_url="https://example.test/forecast",
+        retrieved_at=SCENE_DATE,
+        cache_hit=False,
+        dataset=ADS_FORECAST_DATASET,
+        forecast_cycle="00:00",
+        forecast_lead_time_hours=3,
+        assumptions=(CAMS_FORECAST_INPUT_NOT_EAC4_REANALYSIS,),
+    )
+
+    aod = compare_eac4_forecast_overlap(eac4, forecast).variables[0]
+
+    assert aod.eac4_mean == 0.5
+    assert aod.forecast_mean == 0.0
+    assert aod.mean_difference == -0.5
 
 
 def test_ads_errors_redact_token(tmp_path, monkeypatch):

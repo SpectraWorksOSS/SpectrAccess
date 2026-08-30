@@ -47,6 +47,9 @@ cams = [
   # ECMWF's maintained client for CDS/ADS retrieval. The connector keeps the
   # provider transport here instead of freezing the ADS REST lifecycle.
   "cdsapi>=0.7.7,<0.8",
+  # ADS returns HDF5-based netCDF4, while core xarray support only guarantees
+  # the lightweight scipy netCDF3 backend used by GSICS products.
+  "h5netcdf>=1.3",
 ]
 emit = [
   # Intentionally unmarked: earthaccess 0.18 requires Python >=3.12. Keeping
@@ -64,6 +67,7 @@ test = [
   # users who need this connector install spectraccess[cdse].
   "cdsetool>=0.3.1,<0.4",
   "cdsapi>=0.7.7,<0.8",
+  "h5netcdf>=1.3",
   "earthaccess==0.18.0",
   "eodag[usgs]>=4.3,<5",
 ]
