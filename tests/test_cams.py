@@ -314,6 +314,57 @@ def test_overlap_comparator_keeps_eac4_and_forecast_separate(tmp_path):
     assert compare_candidate_leads(eac4, [forecast]) == (comparison,)
 
 
+def test_overlap_comparator_accepts_ads_return_variable_names(tmp_path):
+    eac4_dir = tmp_path / DATE_LABEL
+    forecast_base = tmp_path / "forecast" / "cycle-00_lead-3"
+    forecast_dir = forecast_base / DATE_LABEL
+    eac4_dir.mkdir(parents=True)
+    forecast_dir.mkdir(parents=True)
+    eac4_file = eac4_dir / "eac4.nc"
+    forecast_file = forecast_dir / "forecast.nc"
+    _write_overlap_file(eac4_file, offset=1.0)
+    _write_overlap_file(forecast_file, offset=2.0)
+    returned_names = {
+        "total_aerosol_optical_depth_550nm": "aod550",
+        "total_column_water_vapour": "tcwv",
+        "total_column_ozone": "gtco3",
+    }
+    for path in (eac4_file, forecast_file):
+        with xr.open_dataset(path) as dataset:
+            dataset.rename(returned_names).to_netcdf(path.with_suffix(".tmp"), engine="scipy")
+        path.with_suffix(".tmp").replace(path)
+    eac4 = CAMSResult(
+        scene_date=SCENE_DATE,
+        requested_source="ads",
+        resolved_source="ads",
+        base_dir=tmp_path,
+        date_dir=eac4_dir,
+        files=(eac4_file,),
+        source_url="https://example.test/eac4",
+        retrieved_at=SCENE_DATE,
+        cache_hit=False,
+        dataset=ADS_DATASET,
+    )
+    forecast = CAMSResult(
+        scene_date=SCENE_DATE,
+        requested_source="ads-forecast",
+        resolved_source="ads",
+        base_dir=forecast_base,
+        date_dir=forecast_dir,
+        files=(forecast_file,),
+        source_url="https://example.test/forecast",
+        retrieved_at=SCENE_DATE,
+        cache_hit=False,
+        dataset=ADS_FORECAST_DATASET,
+        forecast_cycle="00:00",
+        forecast_lead_time_hours=3,
+        assumptions=(CAMS_FORECAST_INPUT_NOT_EAC4_REANALYSIS,),
+    )
+
+    comparison = compare_eac4_forecast_overlap(eac4, forecast)
+    assert [row.mean_difference for row in comparison.variables] == [1.0, 1.0, 1.0]
+
+
 def test_overlap_comparator_rejects_missing_forecast_assumption(tmp_path):
     result = CAMSResult(
         scene_date=SCENE_DATE,

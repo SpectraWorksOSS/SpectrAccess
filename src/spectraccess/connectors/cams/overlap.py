@@ -12,10 +12,18 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Iterable
 
-import xarray as xr
+import numpy as np
 import pandas as pd
+import xarray as xr
 
 from .connector import ADS_DATASET, ADS_FORECAST_DATASET, ADS_VARIABLES, CAMSResult
+
+
+ADS_RETURNED_VARIABLES = {
+    "total_aerosol_optical_depth_550nm": "aod550",
+    "total_column_water_vapour": "tcwv",
+    "total_column_ozone": "gtco3",
+}
 
 
 @dataclass(frozen=True)
@@ -107,10 +115,12 @@ def _compare_variable(
     variable: str,
     valid_time: datetime,
 ) -> CAMSVariableOverlap:
-    if variable not in eac4 or variable not in forecast:
+    eac4_data = _variable_data(eac4, variable)
+    forecast_data = _variable_data(forecast, variable)
+    if eac4_data is None or forecast_data is None:
         raise ValueError(f"overlap file is missing required CAMS variable {variable!r}")
-    eac4_values = _at_valid_time(eac4[variable], valid_time)
-    forecast_values = _at_valid_time(forecast[variable], valid_time)
+    eac4_values = _at_valid_time(eac4_data, valid_time)
+    forecast_values = _at_valid_time(forecast_data, valid_time)
     eac4_mean = float(eac4_values.mean(skipna=True).item())
     forecast_mean = float(forecast_values.mean(skipna=True).item())
     return CAMSVariableOverlap(
@@ -123,13 +133,28 @@ def _compare_variable(
     )
 
 
+def _variable_data(dataset: xr.Dataset, requested_name: str) -> xr.DataArray | None:
+    for name in (requested_name, ADS_RETURNED_VARIABLES[requested_name]):
+        if name in dataset:
+            return dataset[name]
+    return None
+
+
 def _at_valid_time(values: xr.DataArray, valid_time: datetime) -> xr.DataArray:
     expected = pd.Timestamp(valid_time).tz_convert("UTC").tz_localize(None)
     for coordinate in ("valid_time", "time"):
         if coordinate in values.coords:
             try:
                 return values.sel({coordinate: expected})
-            except KeyError:
+            except (KeyError, ValueError):
+                times = values[coordinate]
+                matches = np.argwhere(np.asarray(times.values) == expected.to_datetime64())
+                if len(matches) == 1:
+                    indexers = {
+                        dim: int(index)
+                        for dim, index in zip(times.dims, matches[0])
+                    }
+                    return values.isel(indexers)
                 raise ValueError(
                     f"{coordinate} does not exactly match forecast valid time {valid_time!r}"
                 ) from None
