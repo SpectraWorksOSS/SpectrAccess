@@ -8,6 +8,7 @@ and canonical metadata output.  It deliberately does not parse Landsat pixels.
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 import tempfile
@@ -38,6 +39,8 @@ except ImportError as exc:  # pragma: no cover - exercised by packaging
         "Install it with: pip install 'spectraccess[landsat]'"
     ) from exc
 
+
+logger = logging.getLogger(__name__)
 
 PROVIDER = "usgs"
 COLLECTION = "LANDSAT_C2L1"
@@ -162,7 +165,9 @@ class LandsatEodagConnector(Connector):
     ) -> list[LandsatTarget]:
         """Return Landsat C2 L1TP targets for an EPSG:4326 bounding box.
 
-        ``end`` is inclusive by calendar day, preserving the established
+        Non-L1TP products the provider returns alongside (L1GT, other
+        collections) are skipped with an INFO log, so the result can hold
+        fewer than ``limit`` targets. ``end`` is inclusive by calendar day, preserving the established
         RefCal work-list contract. Landsat is WRS-2 indexed, so MGRS input is
         rejected instead of being silently ignored.
         """
@@ -226,12 +231,21 @@ class LandsatEodagConnector(Connector):
     def _search(self, search_kwargs: Mapping[str, Any]) -> list[LandsatTarget]:
         try:
             products = self._dag.search(**dict(search_kwargs))
-            retrieved_at = datetime.now(timezone.utc)
-            return [_product_to_target(product, retrieved_at=retrieved_at) for product in products]
-        except LandsatConnectorError:
-            raise
         except Exception as exc:
             raise LandsatProviderError(f"USGS Landsat discovery failed: {exc}") from exc
+        retrieved_at = datetime.now(timezone.utc)
+        targets = []
+        for product in products:
+            title = _product_title(product)
+            if not _is_contract_title(title):
+                # USGS area searches routinely return L1GT and other non-L1TP
+                # neighbours. They are outside this connector's contract, not a
+                # broken response, so skip them rather than abort the search.
+                # Malformed metadata on an L1TP product still raises below.
+                logger.info("Skipping non-L1TP Landsat product %r", title)
+                continue
+            targets.append(_product_to_target(product, retrieved_at=retrieved_at))
+        return targets
 
     def fetch(
         self,
@@ -296,9 +310,22 @@ class LandsatEodagConnector(Connector):
         return {"target": target} if isinstance(target, LandsatTarget) else {}
 
 
+def _product_title(product: "EOProduct") -> str:
+    props = getattr(product, "properties", {}) or {}
+    return _strip_archive_suffixes(str(props.get("title") or props.get("id") or props.get("uid") or ""))
+
+
+def _is_contract_title(title: str) -> bool:
+    try:
+        _parse_title(title)
+    except LandsatProductError:
+        return False
+    return True
+
+
 def _product_to_target(product: "EOProduct", *, retrieved_at: datetime) -> LandsatTarget:
     props = deepcopy(dict(getattr(product, "properties", {}) or {}))
-    title = _strip_archive_suffixes(str(props.get("title") or props.get("id") or props.get("uid") or ""))
+    title = _product_title(product)
     identity = _parse_title(title)
     provider_product_id = str(props.get("id") or props.get("uid") or title).strip()
     if not provider_product_id:

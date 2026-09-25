@@ -205,8 +205,29 @@ def test_native_and_canonical_metadata_are_lossless_and_honest():
         "LE07_L1TP_044034_20210508_20210518_02_T1",
     ],
 )
-def test_non_contract_landsat_titles_fail_loudly(title):
+def test_area_search_skips_non_contract_neighbours(title, caplog):
+    connector = LandsatEodagConnector(gateway=Gateway([_product(title=title), _product()]))
+    with caplog.at_level("INFO", logger="spectraccess.connectors.landsat_eodag.connector"):
+        targets = connector.discover(bbox=(-1, -1, 1, 1))
+    assert [target.title for target in targets] == [L8_TITLE]
+    assert title in caplog.text
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        "LC08_L1GT_044034_20210508_20210518_02_T1",
+        "LC08_L1TP_044034_20210508_20210518_01_T1",
+    ],
+)
+def test_exact_title_search_rejects_non_contract_titles(title):
     connector = LandsatEodagConnector(gateway=Gateway([_product(title=title)]))
+    with pytest.raises(LandsatProductError):
+        connector.discover_title(title)
+
+
+def test_malformed_metadata_on_contract_product_still_fails_loudly():
+    connector = LandsatEodagConnector(gateway=Gateway([_product(cloud_cover=140)]))
     with pytest.raises(LandsatProductError):
         connector.discover(bbox=(-1, -1, 1, 1))
 

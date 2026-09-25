@@ -442,7 +442,8 @@ class CAMSConnector(Connector):
             except Exception as exc:
                 tmp.unlink(missing_ok=True)
                 raise CAMSProviderError(
-                    f"ADS retrieval failed for {target.scene_date.date()} ({type(exc).__name__})"
+                    f"ADS retrieval failed for {target.scene_date.date()} "
+                    f"({_describe_error(exc, secret=self.ads_token)})"
                 ) from None
         else:
             manifest = _read_source_manifest(
@@ -528,7 +529,8 @@ class CAMSConnector(Connector):
             except Exception as exc:
                 tmp.unlink(missing_ok=True)
                 raise CAMSProviderError(
-                    f"ADS forecast retrieval failed for {target.scene_date.date()} ({type(exc).__name__})"
+                    f"ADS forecast retrieval failed for {target.scene_date.date()} "
+                    f"({_describe_error(exc, secret=self.ads_token)})"
                 ) from None
         else:
             manifest = _read_source_manifest(
@@ -586,8 +588,8 @@ class CAMSConnector(Connector):
             if attempt + 1 < self.max_attempts:
                 time.sleep(min(self.retry_delay_seconds * 2**attempt, 120.0))
         raise CAMSProviderError(
-            f"CAMS mirror probe failed after {self.max_attempts} attempts ({type(last).__name__})"
-        )
+            f"CAMS mirror probe failed after {self.max_attempts} attempts ({_describe_error(last)})"
+        ) from last
 
     def _download(self, url: str, dest: Path) -> None:
         last: Exception | None = None
@@ -609,8 +611,27 @@ class CAMSConnector(Connector):
             if attempt + 1 < self.max_attempts:
                 time.sleep(min(self.retry_delay_seconds * 2**attempt, 120.0))
         raise CAMSProviderError(
-            f"CAMS mirror download failed after {self.max_attempts} attempts ({type(last).__name__})"
-        )
+            f"CAMS mirror download failed after {self.max_attempts} attempts ({_describe_error(last)})"
+        ) from last
+
+
+def _describe_error(exc: BaseException | None, *, secret: str | None = None) -> str:
+    """Name and message of a provider error, with ``secret`` scrubbed out.
+
+    ADS errors can echo the personal access token, so ADS failures raise
+    ``from None`` and carry this scrubbed text instead of the raw cause.
+    """
+    if exc is None:
+        return "unknown error"
+    text = str(exc)
+    if secret:
+        for part in {secret, *secret.split(":")}:
+            if len(part) >= 8:
+                text = text.replace(part, "<redacted>")
+    text = " ".join(text.split())
+    if len(text) > 500:
+        text = text[:500] + "..."
+    return f"{type(exc).__name__}: {text}" if text else type(exc).__name__
 
 
 def _cds_client(url: str, token: str):
