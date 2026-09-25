@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import os
 import sys
+import tempfile
 from datetime import datetime, timezone
+
+import requests
 
 from spectraccess.connectors.gsics.connector import DEFAULT_CATALOGS, GSICSCatalog, GSICSConnector
 from spectraccess.connectors.modis_viirs_cal.connector import VIIRSCatalog, VIIRSCalibrationConnector
@@ -85,6 +88,7 @@ def smoke_viirs() -> None:
         # not raise here: on the weekly schedule that would file a recurring
         # false connector-broken issue every run. Skip cleanly instead.
         print("VIIRS smoke SKIPPED: SPECTRACCESS_VIIRS_CATALOG_URL not configured (connector is a documented stub)")
+        _probe_star_thredds()
         return
     targets = VIIRSCalibrationConnector(VIIRSCatalog("NOAA STAR VIIRS F-factors", catalog_url)).discover(
         use_cache=False,
@@ -92,6 +96,31 @@ def smoke_viirs() -> None:
     )
     if not targets:
         raise RuntimeError("VIIRS discover returned no targets")
+
+
+STAR_THREDDS_URL = "https://www.star.nesdis.noaa.gov/thredds/gsics/catalog.xml"
+
+
+def _probe_star_thredds() -> None:
+    # The skip above must not hide the day NOAA STAR's THREDDS comes back.
+    # One cheap GET of the canonical catalog: "reachable" only on HTTP 200
+    # with a THREDDS catalog body (a 200 maintenance page is not the catalog).
+    # Never raises: the result is printed and handed to the workflow through
+    # GITHUB_OUTPUT (it opens an `upstream-back` issue), never turned into a
+    # smoke failure.
+    try:
+        response = requests.get(STAR_THREDDS_URL, timeout=20)
+        reachable = response.status_code == 200 and b"<catalog" in response.content[:4096]
+        detail = f"HTTP {response.status_code}"
+    except requests.RequestException as exc:
+        reachable = False
+        detail = type(exc).__name__
+    state = "reachable" if reachable else "unreachable"
+    print(f"NOAA STAR THREDDS probe: {state} ({detail}) <- {STAR_THREDDS_URL}")
+    github_output = os.environ.get("GITHUB_OUTPUT")
+    if github_output:
+        with open(github_output, "a", encoding="utf-8") as stream:
+            stream.write(f"star_thredds={state}\n")
 
 
 def smoke_radcalnet() -> None:
@@ -173,6 +202,130 @@ def smoke_sentinel2_cdse() -> None:
     )
 
 
+def smoke_aeronet() -> None:
+    # The AERONET v3 web service is public. One long-running site (NASA GSFC),
+    # three days of L2.0: a ~100 kB CSV.
+    from spectraccess.connectors.aeronet import AeronetConnector
+
+    connector = AeronetConnector(timeout=60)
+    target = connector.discover(
+        "GSFC",
+        datetime(2024, 6, 1, tzinfo=timezone.utc),
+        datetime(2024, 6, 3, tzinfo=timezone.utc),
+        level="L2.0",
+    )[0]
+    print(f"AERONET fetch: {target.url}")
+    raw = connector.fetch(target)
+
+    df = connector.parse(raw, requested_site=target.site, data_level=target.level)
+    if df.empty:
+        raise RuntimeError("AERONET parse produced an empty DataFrame")
+
+    canonical = connector.parse_canonical(
+        raw, source_url=target.url, requested_site=target.site, data_level=target.level
+    )
+    if canonical.empty:
+        raise RuntimeError("AERONET parse_canonical produced an empty DataFrame")
+    if canonical.attrs.get("spectraccess_schema_version") is None:
+        raise RuntimeError("AERONET canonical frame is not schema-stamped")
+    quantities = set(canonical["quantity"])
+    if not {"aerosol_optical_depth", "precipitable_water"} <= quantities:
+        raise RuntimeError(f"AERONET canonical frame missing AOD/PW quantities, got {sorted(quantities)}")
+    # to_canonical deliberately asserts no per-observation uncertainty in v1.
+    if not (canonical["unc_status"] == "unknown").all():
+        raise RuntimeError("AERONET canonical uncertainty was not labelled unknown")
+    print(
+        f"AERONET parse: native={df.shape}, canonical={canonical.shape}, "
+        f"observations={df['observation_index'].nunique()}"
+    )
+
+
+# A date for which the public NCEO ARD JASMIN mirror publishes the full SIAC
+# GeoTIFF family (verified live 2026-09-25). Date directories after
+# 2025-10-03 exist on the mirror but were empty at that check.
+_CAMS_JASMIN_DATE = datetime(2025, 6, 1, tzinfo=timezone.utc)
+
+
+def smoke_cams() -> None:
+    from spectraccess.connectors.cams import JASMIN_BASE_URL, CAMSConnector
+
+    # JASMIN is public, but one date's family is ~96 MB of GeoTIFFs: too much
+    # for a weekly portal-health check. Exercise the connector's own
+    # availability probe (HEAD on each of the three assets fetch() downloads)
+    # instead of the transfer.
+    connector = CAMSConnector(source="jasmin", max_attempts=2, retry_delay_seconds=2)
+    target = connector.discover(scene_date=_CAMS_JASMIN_DATE)[0]
+    base = JASMIN_BASE_URL.rstrip("/")
+    if not connector._date_available(base, target.date_label):
+        raise RuntimeError(f"CAMS JASMIN mirror no longer publishes pinned date {target.date_label} at {base}")
+    print(f"CAMS JASMIN: {target.date_label} asset family published at {base}")
+
+    if not os.environ.get("ADS_TOKEN"):
+        print("CAMS ADS smoke SKIPPED: ADS_TOKEN not set")
+        return
+    # BYO ADS token: one day of the three EAC4 variables (small global netCDF).
+    with tempfile.TemporaryDirectory() as cache_dir:
+        ads = CAMSConnector(cache_dir=cache_dir, source="ads", max_attempts=2)
+        result = ads.fetch(ads.discover(scene_date=_CAMS_JASMIN_DATE)[0])
+        if result.resolved_source != "ads" or result.stratum != "eac4-reanalysis":
+            raise RuntimeError(
+                f"CAMS ADS resolved {result.resolved_source!r}/{result.stratum!r}, expected ads/eac4-reanalysis"
+            )
+        if ads.parse(result).empty or not all(path.stat().st_size > 0 for path in result.files):
+            raise RuntimeError("CAMS ADS fetch produced no non-empty assets")
+        print(f"CAMS ADS: {[path.name for path in result.files]} <- {result.source_url}")
+
+
+def smoke_emit_earthaccess() -> None:
+    # CMR discovery is public; the protected NetCDF download needs Earthdata
+    # Login and is multi-GB, so the smoke is discovery + metadata canonical
+    # only, bounded to Cuprite, NV over a closed window.
+    from spectraccess.connectors.emit_earthaccess import EMITEarthaccessConnector, target_to_canonical
+
+    targets = EMITEarthaccessConnector().discover(
+        product="EMITL2ARFL",
+        bbox=(-117.35, 37.40, -117.10, 37.65),
+        start=datetime(2024, 1, 1, tzinfo=timezone.utc),
+        end=datetime(2024, 12, 31, tzinfo=timezone.utc),
+        limit=3,
+    )
+    if not targets:
+        raise RuntimeError("EMIT CMR discovery returned no EMITL2ARFL granules over Cuprite in 2024")
+    target = targets[0]
+    canonical = target_to_canonical(target)
+    if canonical.attrs.get("spectraccess_schema_version") is None:
+        raise RuntimeError("EMIT canonical frame is not schema-stamped")
+    if not (canonical["unc_status"] == "unknown").all():
+        raise RuntimeError("EMIT metadata uncertainty was not labelled unknown")
+    print(f"EMIT discovery: {len(targets)} granule(s), newest {target.product_id}, canonical={canonical.shape}")
+
+
+def smoke_landsat_eodag() -> None:
+    from spectraccess.connectors.landsat_eodag.connector import PASSWORD_ENV, USERNAME_ENV
+
+    # USGS M2M needs credentials even for search (EODAG prunes the provider
+    # without them), so an unconfigured repo must SKIP, not fail.
+    if not os.environ.get(USERNAME_ENV) or not os.environ.get(PASSWORD_ENV):
+        print(f"Landsat smoke SKIPPED: {USERNAME_ENV}/{PASSWORD_ENV} not set")
+        return
+    from spectraccess.connectors.landsat_eodag import LandsatEodagConnector, target_to_canonical
+
+    targets = LandsatEodagConnector().discover(
+        bbox=(4.80, 52.30, 4.95, 52.40),
+        start=datetime(2024, 5, 1, tzinfo=timezone.utc),
+        end=datetime(2024, 5, 31, tzinfo=timezone.utc),
+        limit=5,
+    )
+    if not targets:
+        raise RuntimeError("Landsat discovery returned no L1TP targets for the Amsterdam bbox in May 2024")
+    canonical = target_to_canonical(targets[0])
+    if canonical.attrs.get("spectraccess_schema_version") is None:
+        raise RuntimeError("Landsat canonical frame is not schema-stamped")
+    if canonical.loc[0, "unc_status"] != "unknown":
+        raise RuntimeError("Landsat cloud-cover uncertainty was not labelled unknown")
+    print(f"Landsat discovery: {len(targets)} target(s), first {targets[0].title}")
+
+
 def main() -> int:
     connector = sys.argv[1] if len(sys.argv) > 1 else ""
     if connector == "gsics":
@@ -183,6 +336,14 @@ def main() -> int:
         smoke_radcalnet()
     elif connector == "sentinel2_cdse":
         smoke_sentinel2_cdse()
+    elif connector == "aeronet":
+        smoke_aeronet()
+    elif connector == "cams":
+        smoke_cams()
+    elif connector == "emit_earthaccess":
+        smoke_emit_earthaccess()
+    elif connector == "landsat_eodag":
+        smoke_landsat_eodag()
     else:
         raise SystemExit(f"unknown connector {connector!r}")
     return 0

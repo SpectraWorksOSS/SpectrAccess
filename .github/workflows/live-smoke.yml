@@ -15,13 +15,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        connector: [gsics, modis_viirs_cal, radcalnet, sentinel2_cdse]
+        connector:
+          [gsics, modis_viirs_cal, radcalnet, sentinel2_cdse, aeronet, cams, emit_earthaccess, landsat_eodag]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - name: Install
+        # The test extra carries every connector's maintained client
+        # (cdsetool, cdsapi, earthaccess on 3.12+, eodag[usgs]).
         run: python -m pip install -e ".[test]"
       - name: Run live smoke
         id: smoke
@@ -40,7 +43,35 @@ jobs:
           # these repo secrets are configured (a free RadCalNet portal account).
           RADCALNET_USERNAME: ${{ secrets.RADCALNET_USERNAME }}
           RADCALNET_PASSWORD: ${{ secrets.RADCALNET_PASSWORD }}
+          # BYO-credentials: the landsat_eodag smoke prints SKIP and exits 0
+          # until these repo secrets are set (USGS EarthExplorer username and
+          # M2M application token; USGS needs them even for search). Names are
+          # EODAG's own USGS credential variables, read by the connector.
+          EODAG__USGS__API__CREDENTIALS__USERNAME: ${{ secrets.EODAG__USGS__API__CREDENTIALS__USERNAME }}
+          EODAG__USGS__API__CREDENTIALS__PASSWORD: ${{ secrets.EODAG__USGS__API__CREDENTIALS__PASSWORD }}
+          # BYO-credentials: the cams smoke always checks the public JASMIN
+          # mirror; its ADS half prints SKIP until this repo secret is set
+          # (free ADS account personal access token).
+          ADS_TOKEN: ${{ secrets.ADS_TOKEN }}
         run: python scripts/live_smoke.py "${{ matrix.connector }}"
+      - name: Open or update upstream-back issue
+        # The modis_viirs_cal smoke skips while NOAA STAR THREDDS is down but
+        # probes it every week; when it answers, say so in an issue. Never
+        # fails the job.
+        if: matrix.connector == 'modis_viirs_cal' && steps.smoke.outputs.star_thredds == 'reachable'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="upstream-back: NOAA STAR THREDDS reachable"
+          body="Weekly live smoke found https://www.star.nesdis.noaa.gov/thredds/gsics/catalog.xml serving a THREDDS catalog again in ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}. Verify the NOAA STAR GSICS and VIIRS F-factor catalog URLs, then configure SPECTRACCESS_VIIRS_CATALOG_URL / the GSICS NOAA STAR default."
+          gh label create upstream-back --description "An upstream portal that was down answers again" --color 0E8A16 --force
+          existing="$(gh issue list --state open --label upstream-back --search "$title in:title" --json number --jq '.[0].number')"
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "$body"
+          else
+            gh issue create --title "$title" --label upstream-back --body "$body"
+          fi
       - name: Open or update connector-broken issue
         if: steps.smoke.outcome == 'failure'
         env:
