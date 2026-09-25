@@ -58,6 +58,10 @@ _OUTPUT_FILENAME_RE = re.compile(
     r"[.](?P<kind>input|output)$"
 )
 
+# Spectral column name by file kind: .output holds TOA reflectance, .input the
+# surface reflectance it was propagated from.
+_REFLECTANCE_QUANTITIES = ("toa_reflectance", "surface_reflectance")
+
 # Per-time ancillary metadata rows -> canonical column names.
 _ANCILLARY_ROWS: tuple[tuple[str, str], ...] = (
     ("Zen", "sza"),
@@ -241,10 +245,14 @@ class RadCalNetConnector(Connector):
         return {}
 
     def parse(self, raw: bytes | str, *, source_file: str | None = None) -> pd.DataFrame:
-        """Parse one ``.output`` file, or a ZIP of daily files, into a tidy frame.
+        """Parse one ``.output`` or ``.input`` file, or a ZIP of daily files, into a tidy frame.
 
         One row per (time, wavelength); see module docstring for the value
-        semantics (fill/negative handling) applied to every numeric cell.
+        semantics (fill/negative handling) applied to every numeric cell. The
+        spectral column is ``toa_reflectance`` for ``.output`` files and
+        ``surface_reflectance`` for ``.input`` files (kind from the file name,
+        else from the absence of the ``Zen``/``Azi``/``esd`` rows). A ZIP
+        yields ``.output`` files only.
         """
 
         payload = _read_payload(raw)
@@ -283,20 +291,21 @@ def to_canonical(
     if native.empty:
         return empty_frame()
 
-    if "toa_reflectance" not in native.columns:
+    quantity = next((name for name in _REFLECTANCE_QUANTITIES if name in native.columns), None)
+    if quantity is None:
         raise ValueError(
-            "native RadCalNet frame has no 'toa_reflectance' column -- cannot "
-            f"build canonical rows (got columns: {list(native.columns)})"
+            "native RadCalNet frame has no 'toa_reflectance' or 'surface_reflectance' "
+            f"column -- cannot build canonical rows (got columns: {list(native.columns)})"
         )
 
     rows: list[dict[str, object]] = []
     for _, native_row in native.iterrows():
-        unc_status = native_row.get("toa_reflectance_unc_status", UncertaintyStatus.UNKNOWN.value)
-        unc_value = native_row.get("toa_reflectance_unc")
+        unc_status = native_row.get(f"{quantity}_unc_status", UncertaintyStatus.UNKNOWN.value)
+        unc_value = native_row.get(f"{quantity}_unc")
         unc_value = float(unc_value) if pd.notna(unc_value) else None
-        unc_k = native_row.get("toa_reflectance_unc_k")
+        unc_k = native_row.get(f"{quantity}_unc_k")
         unc_k = float(unc_k) if pd.notna(unc_k) else None
-        unc_provider = native_row.get("toa_reflectance_unc_provider")
+        unc_provider = native_row.get(f"{quantity}_unc_provider")
         unc_provider = str(unc_provider) if pd.notna(unc_provider) else None
 
         if unc_status == UncertaintyStatus.PROVIDED.value:
@@ -326,8 +335,8 @@ def to_canonical(
             "latitude": native_row.get("lat"),
             "longitude": native_row.get("lon"),
             "reference": None,
-            "quantity": "toa_reflectance",
-            "value": float(native_row["toa_reflectance"]),
+            "quantity": quantity,
+            "value": float(native_row[quantity]),
             "units": "1",
             "source": "radcalnet",
             "source_agency": "RadCalNet (CEOS WGCV)",
@@ -446,7 +455,7 @@ def _select_latest_output_entries(names: Iterable[str]) -> list[str]:
     return [value[1] for _key, value in sorted(latest.items())]
 
 
-def _empty_native_frame() -> pd.DataFrame:
+def _empty_native_frame(quantity: str = "toa_reflectance") -> pd.DataFrame:
     columns = [
         "timestamp",
         "site",
@@ -454,12 +463,12 @@ def _empty_native_frame() -> pd.DataFrame:
         "lon",
         "alt_m",
         "wavelength_nm",
-        "toa_reflectance",
+        quantity,
         "value_is_climatological",
-        "toa_reflectance_unc",
-        "toa_reflectance_unc_status",
-        "toa_reflectance_unc_k",
-        "toa_reflectance_unc_provider",
+        f"{quantity}_unc",
+        f"{quantity}_unc_status",
+        f"{quantity}_unc_k",
+        f"{quantity}_unc_provider",
         "source_file",
         "source_version",
     ] + [canonical for _src, canonical in _ANCILLARY_ROWS]
@@ -603,7 +612,12 @@ def _parse_output_text(text: str, *, source_file: str | None) -> pd.DataFrame:
         raise ValueError(f"RadCalNet .output file missing Year/DOY(U)/UTC rows: {source_file}")
 
     filename_info = _parse_filename(source_file) if source_file else None
-    year_from_name, doy_from_name, version, _kind = filename_info or (None, None, None, None)
+    year_from_name, doy_from_name, version, kind = filename_info or (None, None, None, None)
+    if kind is None:
+        # .input files carry the same layout as .output minus the
+        # geometry/sun-distance rows, which are only computed for TOA.
+        kind = "input" if not {"Zen", "Azi", "esd"} & metadata.keys() else "output"
+    quantity = "surface_reflectance" if kind == "input" else "toa_reflectance"
 
     ancillary_raw: dict[str, list[float | None]] = {}
     for src_key, _canonical in _ANCILLARY_ROWS:
@@ -677,15 +691,15 @@ def _parse_output_text(text: str, *, source_file: str | None) -> pd.DataFrame:
                 "lon": lon,
                 "alt_m": alt_m,
                 "wavelength_nm": float(wavelength),
-                "toa_reflectance": value,
+                quantity: value,
                 "value_is_climatological": is_climatological,
-                "toa_reflectance_unc": unc_value,
-                "toa_reflectance_unc_status": unc_status,
+                f"{quantity}_unc": unc_value,
+                f"{quantity}_unc_status": unc_status,
                 # R2 publishes an absolute, dimensionless uncertainty per
                 # wavelength but does not state its coverage factor. Preserve
                 # that unknown as None; never manufacture k=1 or divide by 2.
-                "toa_reflectance_unc_k": None,
-                "toa_reflectance_unc_provider": unc_provider,
+                f"{quantity}_unc_k": None,
+                f"{quantity}_unc_provider": unc_provider,
                 "source_file": source_file,
                 "source_version": version,
             }
@@ -693,7 +707,7 @@ def _parse_output_text(text: str, *, source_file: str | None) -> pd.DataFrame:
             rows.append(row)
 
     if not rows:
-        return _empty_native_frame()
+        return _empty_native_frame(quantity)
 
     frame = pd.DataFrame(rows)
     frame["timestamp"] = pd.to_datetime(frame["timestamp"], utc=True)

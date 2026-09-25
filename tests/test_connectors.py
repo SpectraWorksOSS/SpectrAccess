@@ -631,6 +631,26 @@ def test_radcalnet_parse_canonical_matches_two_step_path(monkeypatch):
     pd.testing.assert_frame_equal(two_step.reset_index(drop=True), end_to_end.reset_index(drop=True))
 
 
+def _radcalnet_input_text() -> str:
+    # R2 .input files share the .output layout minus the geometry and
+    # sun-distance rows, which only apply once propagated to TOA.
+    lines = RADCALNET_FIXTURE.read_text(encoding="utf-8").splitlines()
+    return "\n".join(line for line in lines if line.split(":", 1)[0] not in {"Zen", "Azi", "esd"})
+
+
+@pytest.mark.parametrize("source_file", ["GSCN01_2025_334_v00.05.input", None])
+def test_radcalnet_input_file_is_labelled_surface_reflectance(monkeypatch, source_file):
+    connector = _radcalnet_connector(monkeypatch)
+    raw = _radcalnet_input_text().encode("utf-8")
+    native = connector.parse(raw, source_file=source_file)
+    assert "surface_reflectance" in native.columns
+    assert "toa_reflectance" not in native.columns
+    assert {"surface_reflectance_unc", "surface_reflectance_unc_status"} <= set(native.columns)
+
+    canonical = connector.parse_canonical(raw, source_file=source_file)
+    assert (canonical["quantity"] == "surface_reflectance").all()
+
+
 def test_radcalnet_to_canonical_rejects_frame_without_reflectance():
     with pytest.raises(ValueError, match="toa_reflectance"):
         radcalnet_to_canonical(pd.DataFrame({"foo": [1.0]}))

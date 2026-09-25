@@ -21,7 +21,9 @@ Initial public release.
 - VIIRS calibration connector shape (NOAA STAR F-factor catalog pending
   verification; MODIS planned).
 - RadCalNet connector on the official JSON API with BYO portal credentials,
-  including per-wavelength uncertainties mapped to `provided` / `prior`.
+  including per-wavelength uncertainties mapped to `provided` / `prior`;
+  `.output` files parse to `toa_reflectance`, `.input` files to
+  `surface_reflectance`.
 - NASA AERONET v3 connector for the public web service, with a 550 nm AOD
   interpolation helper.
 - Sentinel-2 L1C discovery and download via CDSETool (`spectraccess[cdse]`).

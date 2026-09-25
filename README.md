@@ -109,6 +109,9 @@ values are `provided`; negative values are climatological magnitudes and are
 therefore `prior`; fill or absent values are `unknown`. RadCalNet R2 does not
 state a coverage factor, so `toa_reflectance_unc_k` and canonical `unc_k` stay
 null. spectrAccess never substitutes a fixed percentage or assumes `k=1`.
+`.input` files hold the surface reflectance the TOA values were propagated
+from, so they parse to `surface_reflectance` and its matching `_unc` columns
+(canonical `quantity="surface_reflectance"`).
 
 The Sentinel-2 CDSE connector canonicalizes the provider's scene cloud-cover
 metadata as `quantity="scene_cloud_cover"`. CDSE does not publish a numerical
