@@ -65,9 +65,7 @@ print(table.head())
 | RadCalNet | Available (official JSON API; live-verified) | Free portal account; HTTP Basic auth via BYO credentials |
 | Sentinel-2 CDSE | Available (thin adapter over maintained `cdsetool`; public discovery, BYO-credential download) | None for catalogue discovery; free CDSE account for product download |
 | NASA AERONET v3 | Available (native client for the public v3 web service; per-band AOD, Angstrom exponent, precipitable water; 550 nm AOD interpolation helper) | None; cite AERONET and the site PI (see `DATA_TERMS.md`) |
-| CAMS EAC4 / JASMIN | Available (JASMIN cache access plus thin ADS adapter over maintained `cdsapi`; explicit CAMS forecast product for dates EAC4 does not yet cover) | None for JASMIN; free ADS account/token for ADS and automatic fallback |
-<!-- README_OK: public package README rendered on PyPI and GitHub; user documentation, not agent knowledge. -->
-
+| CAMS EAC4 / JASMIN | Available (JASMIN cache access plus thin ADS adapter over maintained `cdsapi`; explicit CAMS forecast product for dates EAC4 does not yet cover) | None for JASMIN, whose public mirror currently holds files only up to 2025-10-03; free ADS account/token for later dates and automatic fallback |
 | NASA EMIT L1B/L2A | Available (thin adapter over maintained `earthaccess`; CMR metadata live-verified) | None for CMR discovery; free Earthdata Login for protected NetCDF download |
 | Landsat 8/9 Collection 2 L1TP | Available (thin adapter over maintained EODAG USGS plugin; preserves tier and WRS-2 identity) | Free USGS EarthExplorer account and M2M application token via BYO credentials |
 
@@ -78,9 +76,12 @@ NOAA/NESDIS GSICS products are also mirrored on the EUMETSAT collaboration serve
 Alongside each connector's native `parse()` output, connectors can additionally emit
 a shared, versioned, long/tidy canonical schema (`spectraccess.core.schema`, currently
 `SCHEMA_VERSION = "1.0"`) so downstream tools can consume any source through one stable
-contract: one row per quantity value plus its uncertainty record. GSICS and RadCalNet
-expose this via `to_canonical(native_frame, ...)` and the connector convenience method
-`parse_canonical(raw, ...)`.
+contract: one row per quantity value plus its uncertainty record. GSICS, RadCalNet and
+AERONET expose this via `to_canonical(native_frame, ...)` and the connector convenience
+method `parse_canonical(raw, ...)`; the Sentinel-2 CDSE, EMIT and Landsat connectors emit
+canonical scene metadata via `target_to_canonical(target)`. CAMS returns its native
+frame only.
+<!-- README_OK: public package README rendered on PyPI and GitHub; user documentation, not agent knowledge. -->
 
 | column | meaning |
 | --- | --- |
