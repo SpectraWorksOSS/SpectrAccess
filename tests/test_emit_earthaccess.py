@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import tomllib
 from copy import deepcopy
 from dataclasses import replace
 from datetime import date, datetime, timezone
@@ -9,14 +8,20 @@ from pathlib import Path
 
 import pytest
 
-from spectraccess.connectors.emit_earthaccess import (
+# earthaccess (the EMIT extra) requires Python >=3.12; the test extra installs
+# it only there, so these tests run on 3.12+ and skip on 3.10/3.11.
+pytest.importorskip("earthaccess")
+
+import tomllib  # noqa: E402 - stdlib from 3.11; reached only on 3.12+
+
+from spectraccess.connectors.emit_earthaccess import (  # noqa: E402
     EMITDownloadError,
     EMITEarthaccessConnector,
     EMITProductError,
     EMITProviderError,
     target_to_canonical,
 )
-from spectraccess.connectors.emit_earthaccess import connector as module
+from spectraccess.connectors.emit_earthaccess import connector as module  # noqa: E402
 
 
 PRIMARY = "EMIT_L2A_RFL_001_20240101T010326_2400101_002.nc"

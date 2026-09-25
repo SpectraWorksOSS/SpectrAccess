@@ -20,7 +20,9 @@ classifiers = [
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
   "Topic :: Scientific/Engineering :: Atmospheric Science",
+  "Typing :: Typed",
 ]
 dependencies = [
   "requests>=2.31",
@@ -68,8 +70,22 @@ test = [
   "cdsetool>=0.3.1,<0.4",
   "cdsapi>=0.7.7,<0.8",
   "h5netcdf>=1.3",
-  "earthaccess==0.18.0",
+  # Marked here (unlike the emit extra) so contributors on 3.10/3.11 can
+  # install the test extra; the EMIT tests skip there.
+  "earthaccess==0.18.0; python_version >= '3.12'",
   "eodag[usgs]>=4.3,<5",
+]
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "/src",
+  "/tests",
+  "/scripts",
+  "/README.md",
+  "/CHANGELOG.md",
+  "/CITATION.cff",
+  "/CONTRIBUTING.md",
+  "/LICENSE",
 ]
 
 [tool.pytest.ini_options]
