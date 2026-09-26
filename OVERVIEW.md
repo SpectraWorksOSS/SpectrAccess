@@ -71,6 +71,12 @@ print(table.head())
 
 NOAA/NESDIS GSICS products are also mirrored on the EUMETSAT collaboration server's master THREDDS catalog (`nesdisProducts.xml`), so some NESDIS product families may already be reachable via the EUMETSAT connector default even while the canonical NOAA STAR host is down.
 
+Landsat (USGS), RadCalNet, and CAMS via ADS have fixture tests, but they have
+not yet been exercised against the live services in CI: they need account
+credentials, and the weekly live checks skip them until those are configured.
+The free JASMIN CAMS mirror has no files after 2025-10-03, so recent CAMS dates
+need an ADS account and token.
+
 ## Canonical schema
 
 Alongside each connector's native `parse()` output, connectors can additionally emit
@@ -81,7 +87,6 @@ AERONET expose this via `to_canonical(native_frame, ...)` and the connector conv
 method `parse_canonical(raw, ...)`; the Sentinel-2 CDSE, EMIT and Landsat connectors emit
 canonical scene metadata via `target_to_canonical(target)`. CAMS returns its native
 frame only.
-<!-- README_OK: public package README rendered on PyPI and GitHub; user documentation, not agent knowledge. -->
 
 | column | meaning |
 | --- | --- |
