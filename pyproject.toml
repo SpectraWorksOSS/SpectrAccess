@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "spectraccess"
 version = "0.1.2"
-description = "Download spectral and atmospheric reference data in Python: RadCalNet, GSICS, AERONET, CAMS, Landsat, Sentinel-2 and EMIT, as pandas tables that keep each value's source and, where the source publishes one, its uncertainty."
+description = "Find and download spectral and atmospheric reference data in Python: RadCalNet, GSICS, AERONET, CAMS, Landsat, Sentinel-2 and EMIT, parsed to pandas DataFrames, with a shared per-value uncertainty schema for GSICS, RadCalNet and AERONET."
 readme = "OVERVIEW.md"
 requires-python = ">=3.10"
 license = { text = "Apache-2.0" }
