@@ -171,7 +171,7 @@ class CAMSConnector(Connector):
         self.source: CAMSMode = configured  # type: ignore[assignment]
         self.cache_dir = Path(
             cache_dir
-            or os.environ.get("REFCAL_CAMS_CACHE_DIR", "")
+            or os.environ.get("SPECTRACCESS_CAMS_CACHE_DIR", "")
             or Path.home() / ".cache" / "spectraccess" / "cams"
         )
         self.ads_token = (ads_token or os.environ.get("ADS_TOKEN", "")).strip() or None
@@ -195,7 +195,7 @@ class CAMSConnector(Connector):
         self.fallback_url = (
             fallback_url
             if fallback_url is not None
-            else os.environ.get("REFCAL_CAMS_FALLBACK_URL", "")
+            else os.environ.get("SPECTRACCESS_CAMS_FALLBACK_URL", "")
         ).rstrip("/")
         self.max_attempts = max_attempts
         self.retry_delay_seconds = retry_delay_seconds
@@ -297,7 +297,7 @@ class CAMSConnector(Connector):
             allowed_source_urls=allowed_source_urls,
         )
         if manifest is not None and manifest.resolved_source == "ads":
-            # A RefCal retry may leave zero, some, or all derived SIAC TIFFs
+            # A consumer retry may leave zero, some, or all derived SIAC TIFFs
             # beside the provider-authoritative ADS netCDF. The sidecar names
             # only that raw provider asset, so resolve it before considering
             # TIFF completeness and let the consumer deterministically derive

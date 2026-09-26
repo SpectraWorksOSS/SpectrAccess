@@ -167,8 +167,8 @@ class LandsatEodagConnector(Connector):
 
         Non-L1TP products the provider returns alongside (L1GT, other
         collections) are skipped with an INFO log, so the result can hold
-        fewer than ``limit`` targets. ``end`` is inclusive by calendar day, preserving the established
-        RefCal work-list contract. Landsat is WRS-2 indexed, so MGRS input is
+        fewer than ``limit`` targets. ``end`` is inclusive by calendar day, matching the Sentinel-2
+        connector. Landsat is WRS-2 indexed, so MGRS input is
         rejected instead of being silently ignored.
         """
         if mgrs_tile is not None:

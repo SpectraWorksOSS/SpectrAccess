@@ -672,3 +672,11 @@ def test_ads_sidecar_cannot_relabel_jasmin_asset_family(tmp_path):
 
     with pytest.raises(CAMSProviderError, match="complete asset family"):
         CAMSConnector(cache_dir=tmp_path, source="auto", ads_token="secret").resolve(SCENE_DATE)
+
+
+def test_cache_dir_and_fallback_url_come_from_spectraccess_env(tmp_path, monkeypatch):
+    monkeypatch.setenv("SPECTRACCESS_CAMS_CACHE_DIR", str(tmp_path))
+    monkeypatch.setenv("SPECTRACCESS_CAMS_FALLBACK_URL", "https://fallback.example/cams/")
+    connector = CAMSConnector(source="jasmin")
+    assert connector.cache_dir == tmp_path
+    assert connector.fallback_url == "https://fallback.example/cams"

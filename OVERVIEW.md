@@ -134,6 +134,10 @@ append the date must use `base_dir`, while format converters can work inside
 cache status, and exact local assets are retained as native provenance. The
 connector retrieves source assets only; atmospheric-correction and
 model-specific format conversion remain downstream responsibilities.
+Constructor arguments override environment variables: `CAMS_SOURCE`,
+`ADS_TOKEN`, `CAMS_FORECAST_CYCLE`, `CAMS_FORECAST_LEAD_HOURS`,
+`SPECTRACCESS_CAMS_CACHE_DIR` (default `~/.cache/spectraccess/cams`), and
+`SPECTRACCESS_CAMS_FALLBACK_URL` (a second mirror with the JASMIN layout).
 
 The EMIT connector likewise keeps the multi-gigabyte science cubes opaque. Its
 canonical output covers only source-provided scene metadata (cloud cover and

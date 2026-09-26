@@ -161,8 +161,8 @@ class Sentinel2CDSEConnector(Connector):
     ) -> list[Sentinel2Target]:
         """Return newest-first Sentinel-2 L1C products matching the query.
 
-        ``end`` is inclusive by UTC calendar day, preserving RefCal's existing
-        operator semantics. CDSETool's current OData iterator orders oldest
+        ``end`` is inclusive by UTC calendar day, matching RefCal's existing
+        query semantics. CDSETool's current OData iterator orders oldest
         first, so this adapter uses its public count/skip controls to request
         the final page, then reverses it. Queries over more than CDSE's 10,000
         result pagination ceiling fail loudly and ask for a narrower window.
@@ -340,8 +340,8 @@ class Sentinel2CDSEConnector(Connector):
         return {"target": target} if isinstance(target, Sentinel2Target) else {}
 
 
-# Preserve the proven RefCal connector name so the consumer flip can change
-# dependency direction without also renaming every operator call site.
+# Alias under the connector name RefCal already uses, so existing callers
+# keep working without renaming their call sites.
 S2CDSEConnector = Sentinel2CDSEConnector
 
 
