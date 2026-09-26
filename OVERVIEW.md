@@ -1,10 +1,10 @@
 # spectrAccess
 
-spectrAccess is a Python client to download and harmonise the reference data used to calibrate and validate satellite sensors (cal/val). It finds, downloads and reads data from RadCalNet, GSICS, AERONET, CAMS, Landsat, Sentinel-2 and NASA EMIT, and returns each source as a tidy pandas table in one shared schema, with the uncertainty of every value kept alongside it, so measurements from different sensors and sites become comparable and traceable.
+spectrAccess is a Python client to download and harmonise the reference data used to calibrate and validate satellite sensors (cal/val). It finds, downloads and reads data from RadCalNet, GSICS, AERONET, CAMS, Landsat, Sentinel-2 and NASA EMIT, and returns each source as a tidy pandas table in one shared schema. Every value carries an uncertainty record (the published uncertainty where the source gives one, a stated status where it does not), and every row keeps its source, URL and retrieval time.
 
 It is written for remote sensing and Earth observation scientists, calibration engineers and satellite data providers who spend too much time on portal logins, file formats and unit conventions instead of the comparison itself.
 
-spectrAccess fetches data on your behalf with your own free accounts where a source needs one. It never re-serves or redistributes the source data, so each provider's terms and citation requirements stay with you (see `DATA_TERMS.md` per connector).
+spectrAccess fetches data on your behalf, using your own free account where a source needs one. It never re-serves or redistributes source data; each connector's `DATA_TERMS.md` lists that provider's terms and citation requirements.
 
 ## Install
 
@@ -162,7 +162,7 @@ Call `spectraccess.core.schema.validate(df)` to check a frame against the schema
 `SchemaError` naming every violation found. Extra, connector-specific columns are always
 allowed and pass through validation untouched.
 
-Maintainer: SpectraWorks B.V. Built by SpectraWorks, makers of RefCal.
+Maintainer: SpectraWorks B.V. Built by SpectraWorks, makers of [RefCal](https://spectraworks.nl/refcal), the cross-sensor calibration layer.
 
 spectrAccess code is licensed under Apache-2.0. Source data remains governed by each external portal's own data terms; see each connector's `DATA_TERMS.md`.
 

@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "spectraccess"
 version = "0.1.0"
-description = "Python client to download and harmonise satellite calibration and validation (cal/val) reference data: RadCalNet, GSICS, AERONET, CAMS, Landsat, Sentinel-2 and EMIT."
+description = "Download satellite calibration and validation reference data in Python: RadCalNet, GSICS, AERONET, CAMS, Landsat, Sentinel-2 and EMIT, as pandas tables with per-value uncertainty records."
 readme = "OVERVIEW.md"
 requires-python = ">=3.10"
 license = { text = "Apache-2.0" }
@@ -14,7 +14,7 @@ keywords = [
   "calibration and validation", "cal/val", "remote sensing", "earth observation",
   "satellite data", "RadCalNet", "GSICS", "AERONET", "CAMS", "Landsat",
   "Sentinel-2", "EMIT", "surface reflectance", "top-of-atmosphere reflectance",
-  "aerosol optical depth", "measurement uncertainty",
+  "aerosol optical depth", "measurement uncertainty", "pandas",
 ]
 authors = [
   { name = "SpectraWorks B.V." }
