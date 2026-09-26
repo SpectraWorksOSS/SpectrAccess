@@ -77,15 +77,13 @@ test = [
 ]
 
 [tool.hatch.build.targets.sdist]
-include = [
-  "/src",
-  "/tests",
-  "/scripts",
-  "/README.md",
-  "/CHANGELOG.md",
-  "/CITATION.cff",
-  "/CONTRIBUTING.md",
-  "/LICENSE",
+# Everything tracked ships by default; only local working trees and caches
+# are dropped, so new top-level content needs no packaging change.
+exclude = [
+  "/.worktrees",
+  "/.worktree-info",
+  "/.venv",
+  "/dist",
 ]
 
 [tool.pytest.ini_options]
