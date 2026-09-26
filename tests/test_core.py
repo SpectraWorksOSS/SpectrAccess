@@ -56,3 +56,15 @@ def test_fetch_url_retries_and_caches(tmp_path, requests_mock):
     assert second == b"ok"
     assert requests_mock.call_count == 2
 
+
+
+def test_version_comes_from_pyproject_via_installed_metadata():
+    import re
+    from pathlib import Path
+
+    import spectraccess
+
+    # Regex, not tomllib: the suite also runs on Python 3.10.
+    pyproject = (Path(__file__).resolve().parents[1] / "pyproject.toml").read_text(encoding="utf-8")
+    declared = re.search(r'^version = "([^"]+)"$', pyproject, re.MULTILINE).group(1)
+    assert spectraccess.__version__ == declared
