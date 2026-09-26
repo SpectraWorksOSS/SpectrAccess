@@ -62,11 +62,11 @@ print(table.head())
 | --- | --- | --- |
 | GSICS GPPA | Available (EUMETSAT live, verified end-to-end; CMA catalog live but content-empty as of 2026-07-05; NOAA STAR pending, host unreachable 2026-07-05) | None for public THREDDS catalogs |
 | MODIS/VIIRS calibration LUT | VIIRS connector shape available; NOAA STAR F-factor THREDDS URL pending verification; MODIS planned | None for public VIIRS THREDDS; MODIS source design pending |
-| RadCalNet | Available (official JSON API; live-verified) | Free portal account; HTTP Basic auth via BYO credentials |
+| RadCalNet | Available (official JSON API; checked by hand against the live portal, 2026-07) | Free portal account; HTTP Basic auth via BYO credentials |
 | Sentinel-2 CDSE | Available (thin adapter over maintained `cdsetool`; public discovery, BYO-credential download) | None for catalogue discovery; free CDSE account for product download |
 | NASA AERONET v3 | Available (native client for the public v3 web service; per-band AOD, Angstrom exponent, precipitable water; 550 nm AOD interpolation helper) | None; cite AERONET and the site PI (see `DATA_TERMS.md`) |
 | CAMS EAC4 / JASMIN | Available (JASMIN cache access plus thin ADS adapter over maintained `cdsapi`; explicit CAMS forecast product for dates EAC4 does not yet cover) | None for JASMIN, whose public mirror currently holds files only up to 2025-10-03; free ADS account/token for later dates and automatic fallback |
-| NASA EMIT L1B/L2A | Available (thin adapter over maintained `earthaccess`; CMR metadata live-verified) | None for CMR discovery; free Earthdata Login for protected NetCDF download |
+| NASA EMIT L1B/L2A | Available (thin adapter over maintained `earthaccess`) | None for CMR discovery; free Earthdata Login for protected NetCDF download |
 | Landsat 8/9 Collection 2 L1TP | Available (thin adapter over maintained EODAG USGS plugin; preserves tier and WRS-2 identity) | Free USGS EarthExplorer account and M2M application token via BYO credentials |
 
 NOAA/NESDIS GSICS products are also mirrored on the EUMETSAT collaboration server's master THREDDS catalog (`nesdisProducts.xml`), so some NESDIS product families may already be reachable via the EUMETSAT connector default even while the canonical NOAA STAR host is down.
@@ -101,10 +101,10 @@ frame only.
 Uncertainty is a record, not a bare number: `unc_value` may be null, but `unc_status` never
 is. `unc_status` is one of:
 
-- `provided` -- the source itself supplied the uncertainty.
-- `derived` -- computed by spectrAccess or a downstream tool.
-- `prior` -- an assumed/prior uncertainty, not measured for this row.
-- `unknown` -- no uncertainty value is available (`unc_value` is null).
+- `provided`: the source itself supplied the uncertainty.
+- `derived`: computed from other quantities by a downstream tool (no connector emits this yet).
+- `prior`: an assumed/prior uncertainty, not measured for this row.
+- `unknown`: no uncertainty value is available (`unc_value` is null).
 
 RadCalNet `.output` files carry an absolute, dimensionless uncertainty value
 for each wavelength and observation. The native frame preserves it as
