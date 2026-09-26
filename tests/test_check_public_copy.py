@@ -19,6 +19,10 @@ spec.loader.exec_module(check_public_copy)
         "it\u2019s done",
         "data -- then parse",
         "data--then parse",
+        "copied here --\n  this connector",
+        "copied here\n-- this connector",
+        "Fetch data &mdash; fast.",
+        "the &ldquo;live&rdquo; connectors",
         "see t_0a1b2c3d for details",
         "ruling d_deadbeef",
         "README_OK: keep",
@@ -36,6 +40,7 @@ def test_flags_each_rule(bad):
     [
         "pip install --upgrade spectraccess",
         "| Source | Status |\n| --- | --- |",
+        "---\ntitle: front matter\n---",
         "Sentinel-2 top-of-atmosphere reflectance",
         "don't use \"curly\" quotes",
         "the data_access helper",

@@ -7,7 +7,8 @@ generated from them).
 
 It fails on:
 
-- typographic dashes and curly quotes (house style is plain ASCII);
+- typographic dashes and curly quotes, as characters or HTML entities
+  (house style is plain ASCII);
 - a double hyphen used as a dash (`word -- word` or `word--word`; CLI flags
   such as `--upgrade` and Markdown table rules are fine);
 - internal tracker ids (`d_`, `t_`, `p_`, `req_`, `br_`, `ho_` followed by a
@@ -51,7 +52,11 @@ RULES = (
         "curly quote; use a straight quote",
     ),
     (
-        re.compile(r"(?<=\s)--(?=\s)|(?<=\w)--(?=\w)"),
+        re.compile(r"&(?:[mn]dash|[lr][sd]quo);"),
+        "HTML entity for a typographic dash or curly quote",
+    ),
+    (
+        re.compile(r"(?:(?<=\s)|^)--(?=\s|$)|(?<=\w)--(?=\w)"),
         "double hyphen used as a dash",
     ),
     (
@@ -88,7 +93,8 @@ def _report(label: str, problems: list[tuple[int, int, str, str]]) -> None:
     annotate = os.environ.get("GITHUB_ACTIONS") == "true"
     for lineno, column, message, excerpt in problems:
         if annotate:
-            print(f"::error file={label},line={lineno},col={column}::{message}: {excerpt}")
+            data = f"{message}: {excerpt}".replace("%", "%25")
+            print(f"::error file={label},line={lineno},col={column}::{data}")
         else:
             print(f"{label}:{lineno}:{column}: {message}: {excerpt}")
 
@@ -98,12 +104,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("files", nargs="*", type=Path, help="files to check (default: the public copy)")
     parser.add_argument("--stdin", metavar="LABEL", help="check text read from stdin, reported under LABEL")
     args = parser.parse_args(argv)
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(errors="backslashreplace")
 
     sources: list[tuple[str, str]] = []
     if args.stdin:
         # Decode as UTF-8 whatever the platform's console encoding is.
         stream = getattr(sys.stdin, "buffer", None)
-        text = stream.read().decode("utf-8") if stream else sys.stdin.read()
+        text = stream.read().decode("utf-8", errors="replace") if stream else sys.stdin.read()
         sources.append((args.stdin, text))
     else:
         for path in args.files or public_copy_files():
