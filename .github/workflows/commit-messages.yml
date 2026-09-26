@@ -1,0 +1,53 @@
+name: Commit messages
+
+# release-please builds versions and release notes from commit subjects, so
+# every non-merge commit must follow Conventional Commits (see CONTRIBUTING.md).
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  conventional-commits:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check commit subjects
+        env:
+          EVENT: ${{ github.event_name }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PUSH_AFTER: ${{ github.event.after }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [ "$EVENT" = "pull_request" ]; then
+            range="$PR_BASE..$PR_HEAD"
+          elif [ -z "${PUSH_BEFORE//0/}" ]; then
+            echo "New branch or tag push: no previous head to compare against; skipping."
+            exit 0
+          elif ! git cat-file -e "$PUSH_BEFORE^{commit}" 2>/dev/null; then
+            echo "Previous head $PUSH_BEFORE is not in history (force push); skipping."
+            exit 0
+          else
+            range="$PUSH_BEFORE..$PUSH_AFTER"
+          fi
+          pattern='^(feat|fix|docs|chore|ci|build|refactor|test|perf|style|revert)(\([A-Za-z0-9._/-]+\))?!?: [^ ].*$'
+          bad=0
+          while IFS= read -r line; do
+            sha="${line%% *}"
+            subject="${line#* }"
+            if ! printf '%s\n' "$subject" | grep -Eq "$pattern"; then
+              echo "::error::${sha:0:12} does not follow Conventional Commits: $subject"
+              bad=1
+            fi
+          done < <(git log --no-merges --format='%H %s' "$range")
+          if [ "$bad" -ne 0 ]; then
+            echo "Expected 'type(scope)?!?: subject' with type one of feat, fix, docs, chore, ci, build, refactor, test, perf, style, revert." >&2
+            exit 1
+          fi
+          echo "All commit subjects in $range follow Conventional Commits."

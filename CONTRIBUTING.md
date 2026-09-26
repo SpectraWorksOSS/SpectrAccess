@@ -21,3 +21,12 @@ Do not hardcode credentials or redistribute third-party data through this
 project. Connectors should use the BYO-credentials helpers in
 `spectraccess.core.session` when authentication is required.
 
+
+## Commit Messages
+
+Commit subjects follow [Conventional Commits](https://www.conventionalcommits.org/):
+`type(scope)!: subject`, with type one of `feat`, `fix`, `docs`, `chore`, `ci`,
+`build`, `refactor`, `test`, `perf`, `style`, `revert`; `!` marks a breaking change.
+CI rejects other subjects. Versions, `CHANGELOG.md` entries, and GitHub Releases
+are generated from these messages by release-please; do not bump the version or
+write release entries by hand.
