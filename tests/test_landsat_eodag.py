@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 import pandas as pd
 import pytest
@@ -224,6 +225,21 @@ def test_exact_title_search_rejects_non_contract_titles(title):
     connector = LandsatEodagConnector(gateway=Gateway([_product(title=title)]))
     with pytest.raises(LandsatProductError):
         connector.discover_title(title)
+
+
+def test_exact_title_search_rejects_non_contract_results():
+    # The requested title is valid; the provider answers with a neighbour.
+    connector = LandsatEodagConnector(
+        gateway=Gateway([_product(title="LC08_L1GT_044034_20210508_20210518_02_T1")])
+    )
+    with pytest.raises(LandsatProductError):
+        connector.discover_title(L8_TITLE)
+
+
+def test_area_search_product_without_title_fails_loudly():
+    connector = LandsatEodagConnector(gateway=Gateway([SimpleNamespace(properties={}), _product()]))
+    with pytest.raises(LandsatProductError):
+        connector.discover(bbox=(-1, -1, 1, 1))
 
 
 def test_malformed_metadata_on_contract_product_still_fails_loudly():

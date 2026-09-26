@@ -444,6 +444,7 @@ def test_ads_errors_redact_token(tmp_path, monkeypatch):
         CAMSConnector(cache_dir=tmp_path, source="ads", ads_token=token).resolve(SCENE_DATE)
     assert token not in str(caught.value)
     assert caught.value.__cause__ is None
+    assert caught.value.__context__ is None
     assert "RuntimeError: provider exploded with <redacted>" in str(caught.value)
 
 

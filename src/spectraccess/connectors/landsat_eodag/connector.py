@@ -225,10 +225,13 @@ class LandsatEodagConnector(Connector):
                 "id": search_id,
                 "limit": limit,
                 "raise_errors": True,
-            }
+            },
+            skip_non_contract=False,
         )
 
-    def _search(self, search_kwargs: Mapping[str, Any]) -> list[LandsatTarget]:
+    def _search(
+        self, search_kwargs: Mapping[str, Any], *, skip_non_contract: bool = True
+    ) -> list[LandsatTarget]:
         try:
             products = self._dag.search(**dict(search_kwargs))
         except Exception as exc:
@@ -237,11 +240,13 @@ class LandsatEodagConnector(Connector):
         targets = []
         for product in products:
             title = _product_title(product)
-            if not _is_contract_title(title):
+            if skip_non_contract and title and not _is_contract_title(title):
                 # USGS area searches routinely return L1GT and other non-L1TP
                 # neighbours. They are outside this connector's contract, not a
                 # broken response, so skip them rather than abort the search.
-                # Malformed metadata on an L1TP product still raises below.
+                # A product with no title at all, any hit on an exact-title
+                # lookup, and malformed metadata on an L1TP product still raise
+                # below.
                 logger.info("Skipping non-L1TP Landsat product %r", title)
                 continue
             targets.append(_product_to_target(product, retrieved_at=retrieved_at))

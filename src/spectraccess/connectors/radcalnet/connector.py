@@ -18,7 +18,8 @@ Verified live 2026-07-07 (see spec p3_radcalnet):
   files, named ``{SITEID}_{YYYY}_{DOY}_v{VV.VV}.input|.output``.
 - ``GET api/json/{SITE}/data/{filename}`` -> the raw ASCII file.
 - ``GET api/json/{SITE}/datanc/`` -> NetCDF files (out of v1 parse scope;
-  ``discover(fmt="nc")`` lists them, ``parse()`` only handles ASCII ``.output``).
+  ``discover(fmt="nc")`` lists them, ``parse()`` handles the ASCII ``.input`` and
+  ``.output`` files).
 - Wrong/absent credentials -> HTTP 401.
 
 ``.output`` ASCII format per the official R2-DataFormatSpecification (V10),
@@ -283,7 +284,8 @@ def to_canonical(
     """Melt a native RadCalNet tidy frame into the spectrAccess canonical schema.
 
     One canonical row per native (time, wavelength) row. A non-empty native
-    frame missing ``toa_reflectance`` raises ``ValueError`` (mirrors the
+    frame missing both ``toa_reflectance`` and ``surface_reflectance`` raises
+    ``ValueError`` (mirrors the
     GSICS connector's silent-drop guard: never turn a real parse failure into
     a quietly empty canonical frame).
     """
@@ -732,10 +734,12 @@ def _parse_output_text(text: str, *, source_file: str | None) -> pd.DataFrame:
 
 
 def parse_output_text(text: str, *, source_file: str | None = None) -> pd.DataFrame:
-    """Parse one ``.output`` file's text into the native tidy frame (public).
+    """Parse one ``.input`` or ``.output`` file's text into the native tidy frame (public).
 
-    Same result as :meth:`RadCalNetConnector.parse` on a single ``.output``
-    file, exposed at module level for consumers that hold the raw text and want
+    The name predates ``.input`` support. ``.output`` files emit
+    ``toa_reflectance``; ``.input`` files emit ``surface_reflectance`` (kind from
+    ``source_file``'s suffix, else from the absent Zen/Azi/esd rows).
+    Same result as :meth:`RadCalNetConnector.parse` on a single file, exposed at module level for consumers that hold the raw text and want
     the per-file frame plus its ``attrs["raw_metadata"]`` passthrough (every
     first-block metadata row, verbatim). See ``_parse_output_text`` for the
     value semantics.

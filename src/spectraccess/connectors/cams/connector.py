@@ -420,6 +420,7 @@ class CAMSConnector(Connector):
                 "time": list(ADS_TIMES),
                 "data_format": "netcdf",
             }
+            ads_failure: str | None = None
             try:
                 client = _cds_client(ADS_API_URL, self.ads_token)
                 client.retrieve(ADS_DATASET, request, str(tmp))
@@ -441,10 +442,15 @@ class CAMSConnector(Connector):
                 raise
             except Exception as exc:
                 tmp.unlink(missing_ok=True)
-                raise CAMSProviderError(
+                ads_failure = (
                     f"ADS retrieval failed for {target.scene_date.date()} "
                     f"({_describe_error(exc, secret=self.ads_token)})"
-                ) from None
+                )
+            # Raised outside the except block: `from None` only hides the raw
+            # provider exception from tracebacks, it would still sit on
+            # __context__, and that exception can carry the ADS token.
+            if ads_failure is not None:
+                raise CAMSProviderError(ads_failure)
         else:
             manifest = _read_source_manifest(
                 date_dir,
@@ -503,6 +509,7 @@ class CAMSConnector(Connector):
                 "type": ["forecast"],
                 "data_format": "netcdf",
             }
+            ads_failure: str | None = None
             try:
                 client = _cds_client(ADS_API_URL, self.ads_token)
                 client.retrieve(ADS_FORECAST_DATASET, request, str(tmp))
@@ -528,10 +535,15 @@ class CAMSConnector(Connector):
                 raise
             except Exception as exc:
                 tmp.unlink(missing_ok=True)
-                raise CAMSProviderError(
+                ads_failure = (
                     f"ADS forecast retrieval failed for {target.scene_date.date()} "
                     f"({_describe_error(exc, secret=self.ads_token)})"
-                ) from None
+                )
+            # Raised outside the except block: `from None` only hides the raw
+            # provider exception from tracebacks, it would still sit on
+            # __context__, and that exception can carry the ADS token.
+            if ads_failure is not None:
+                raise CAMSProviderError(ads_failure)
         else:
             manifest = _read_source_manifest(
                 date_dir,
