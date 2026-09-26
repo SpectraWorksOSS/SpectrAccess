@@ -49,7 +49,7 @@ Apache-2.0 code licence.
 - API reference: the portal's own official `radcalnet_api_client.py` reference
   client (Magellium, 2022) and tech note ACTION-TN-074-MAG document the JSON
   API this connector calls. That reference client's code is "All rights
-  reserved" and is not used or copied here -- this connector implements the
+  reserved" and is not used or copied here; this connector implements the
   documented API shape independently.
 
 Users must comply with RadCalNet's account, download, citation, and data-use
