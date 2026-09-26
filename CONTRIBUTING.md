@@ -30,3 +30,11 @@ Commit subjects follow [Conventional Commits](https://www.conventionalcommits.or
 CI rejects other subjects. Versions, `CHANGELOG.md` entries, and GitHub Releases
 are generated from these messages by release-please; do not bump the version or
 write release entries by hand.
+
+## Public Copy
+
+`OVERVIEW.md` is the PyPI project page. It, `CHANGELOG.md`, this file,
+`CITATION.cff`, the `pyproject.toml` metadata, each connector's `DATA_TERMS.md`,
+and commit messages are checked in CI by `scripts/check_public_copy.py`: plain
+ASCII hyphens and straight quotes only, no double hyphen used as a dash. Run it
+locally with `python scripts/check_public_copy.py`.

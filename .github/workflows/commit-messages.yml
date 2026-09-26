@@ -51,3 +51,5 @@ jobs:
             exit 1
           fi
           echo "All commit subjects in $range follow Conventional Commits."
+          # Commit messages become release notes: hold them to the public-copy rules.
+          git log --no-merges --format=%B "$range" | python3 scripts/check_public_copy.py --stdin "commit messages"
