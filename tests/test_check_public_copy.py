@@ -55,10 +55,18 @@ def test_reports_line_and_column():
     assert [(line, column) for line, column, _, _ in problems] == [(2, 8)]
 
 
-def test_stdin_mode_fails_on_bad_text(monkeypatch, capsys):
+@pytest.mark.parametrize(
+    "github_actions, expected",
+    [(None, "commits:1:12:"), ("true", "::error file=commits,line=1,col=12::")],
+)
+def test_stdin_mode_fails_on_bad_text(monkeypatch, capsys, github_actions, expected):
+    if github_actions is None:
+        monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    else:
+        monkeypatch.setenv("GITHUB_ACTIONS", github_actions)
     monkeypatch.setattr("sys.stdin", io.StringIO("docs: tidy \u2014 wording\n"))
     assert check_public_copy.main(["--stdin", "commits"]) == 1
-    assert "commits:1:" in capsys.readouterr().out
+    assert expected in capsys.readouterr().out
 
 
 def test_missing_public_copy_file_fails(tmp_path):
