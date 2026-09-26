@@ -656,7 +656,7 @@ def test_radcalnet_to_canonical_rejects_frame_without_reflectance():
         radcalnet_to_canonical(pd.DataFrame({"foo": [1.0]}))
 
 
-# --- Connector.run() target-provenance contract (t_2af776c2) ---------------
+# --- Connector.run() target-provenance contract ---------------------------
 
 from spectraccess.connectors.thredds import ThreddsDataset
 from spectraccess.core.connector import Connector
