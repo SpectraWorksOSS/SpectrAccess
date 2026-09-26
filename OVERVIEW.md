@@ -1,6 +1,10 @@
 # spectrAccess
 
-spectrAccess is a general-purpose Python client for hard-to-reach spectral reference data: it gives spectral-data users one coherent package of source-specific connectors for discovering, fetching, and parsing files from portals that do not currently have maintained Python access layers. It uses a BYO-credentials model where needed, so it fetches data on the user's behalf and does not re-serve or redistribute source data.
+spectrAccess is a Python client to download and harmonise the reference data used to calibrate and validate satellite sensors (cal/val). It finds, downloads and reads data from RadCalNet, GSICS, AERONET, CAMS, Landsat, Sentinel-2 and NASA EMIT, and returns each source as a tidy pandas table in one shared schema, with the uncertainty of every value kept alongside it, so measurements from different sensors and sites become comparable and traceable.
+
+It is written for remote sensing and Earth observation scientists, calibration engineers and satellite data providers who spend too much time on portal logins, file formats and unit conventions instead of the comparison itself.
+
+spectrAccess fetches data on your behalf with your own free accounts where a source needs one. It never re-serves or redistributes the source data, so each provider's terms and citation requirements stay with you (see `DATA_TERMS.md` per connector).
 
 ## Install
 

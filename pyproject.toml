@@ -5,15 +5,23 @@ build-backend = "hatchling.build"
 [project]
 name = "spectraccess"
 version = "0.1.0"
-description = "Python clients for hard-to-reach spectral reference data portals."
+description = "Python client to download and harmonise satellite calibration and validation (cal/val) reference data: RadCalNet, GSICS, AERONET, CAMS, Landsat, Sentinel-2 and EMIT."
 readme = "OVERVIEW.md"
 requires-python = ">=3.10"
 license = { text = "Apache-2.0" }
+keywords = [
+  "satellite calibration", "radiometric calibration", "vicarious calibration",
+  "calibration and validation", "cal/val", "remote sensing", "earth observation",
+  "satellite data", "RadCalNet", "GSICS", "AERONET", "CAMS", "Landsat",
+  "Sentinel-2", "EMIT", "surface reflectance", "top-of-atmosphere reflectance",
+  "aerosol optical depth", "measurement uncertainty",
+]
 authors = [
   { name = "SpectraWorks B.V." }
 ]
 classifiers = [
   "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
   "Intended Audience :: Science/Research",
   "License :: OSI Approved :: Apache Software License",
   "Programming Language :: Python :: 3",
@@ -22,6 +30,8 @@ classifiers = [
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
   "Topic :: Scientific/Engineering :: Atmospheric Science",
+  "Topic :: Scientific/Engineering :: GIS",
+  "Topic :: Scientific/Engineering :: Physics",
   "Typing :: Typed",
 ]
 dependencies = [
@@ -38,6 +48,7 @@ dependencies = [
 Homepage = "https://github.com/SpectraWorksOSS/SpectrAccess"
 Repository = "https://github.com/SpectraWorksOSS/SpectrAccess"
 Issues = "https://github.com/SpectraWorksOSS/SpectrAccess/issues"
+"SpectraWorks RefCal" = "https://spectraworks.nl/refcal"
 
 [project.optional-dependencies]
 cdse = [
