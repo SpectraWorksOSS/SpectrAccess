@@ -1,6 +1,6 @@
 # spectrAccess
 
-spectrAccess is a Python client to download and harmonise the reference data used to calibrate and validate satellite sensors (cal/val). It finds, downloads and reads data from RadCalNet, GSICS, AERONET, CAMS, Landsat, Sentinel-2 and NASA EMIT, and returns each source as a tidy pandas table in one shared schema. Every value carries an uncertainty record (the published uncertainty where the source gives one, a stated status where it does not), and every row keeps its source, URL and retrieval time.
+spectrAccess is a Python client for spectral and atmospheric reference data. It finds, downloads and reads data from RadCalNet, GSICS, AERONET, CAMS, Landsat, Sentinel-2 and NASA EMIT, and returns each source as a tidy pandas table in which every row keeps its source, URL and retrieval time and, where the source publishes one, its uncertainty. GSICS, RadCalNet and AERONET data can also be returned in one shared schema that gives every value an uncertainty record (see Canonical schema below).
 
 It is written for remote sensing and Earth observation scientists, calibration engineers and satellite data providers who spend too much time on portal logins, file formats and unit conventions instead of the comparison itself.
 
