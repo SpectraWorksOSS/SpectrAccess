@@ -65,13 +65,15 @@ print(table.head())
 | Connector | Status | Auth requirement |
 | --- | --- | --- |
 | GSICS GPPA | Available (EUMETSAT live, verified end-to-end; CMA catalog live but content-empty as of 2026-07-05; NOAA STAR pending, host unreachable 2026-07-05) | None for public THREDDS catalogs |
-| MODIS/VIIRS calibration LUT | VIIRS connector shape available; NOAA STAR F-factor THREDDS URL pending verification; MODIS planned | None for public VIIRS THREDDS; MODIS source design pending |
+| MODIS/VIIRS calibration LUT ([VIIRS](https://eo-atlas.org/products/sensor/viirs), [MODIS](https://eo-atlas.org/products/sensor/modis)) | VIIRS connector shape available; NOAA STAR F-factor THREDDS URL pending verification; MODIS planned | None for public VIIRS THREDDS; MODIS source design pending |
 | RadCalNet | Available (official JSON API; checked by hand against the live portal, 2026-07) | Free portal account; HTTP Basic auth via BYO credentials |
-| Sentinel-2 CDSE | Available (thin adapter over maintained `cdsetool`; public discovery, BYO-credential download) | None for catalogue discovery; free CDSE account for product download |
+| Sentinel-2 CDSE ([MSI](https://eo-atlas.org/products/sensor/msi)) | Available (thin adapter over maintained `cdsetool`; public discovery, BYO-credential download) | None for catalogue discovery; free CDSE account for product download |
 | NASA AERONET v3 | Available (native client for the public v3 web service; per-band AOD, Angstrom exponent, precipitable water; 550 nm AOD interpolation helper) | None; cite AERONET and the site PI (see `DATA_TERMS.md`) |
-| CAMS EAC4 / JASMIN | Available (JASMIN cache access plus thin ADS adapter over maintained `cdsapi`; explicit CAMS forecast product for dates EAC4 does not yet cover) | None for JASMIN, whose public mirror currently holds files only up to 2025-10-03; free ADS account/token for later dates and automatic fallback |
-| NASA EMIT L1B/L2A | Available (thin adapter over maintained `earthaccess`) | None for CMR discovery; free Earthdata Login for protected NetCDF download |
-| Landsat 8/9 Collection 2 L1TP | Available (thin adapter over maintained EODAG USGS plugin; preserves tier and WRS-2 identity) | Free USGS EarthExplorer account and M2M application token via BYO credentials |
+| CAMS EAC4 / JASMIN ([CAMS forecast](https://eo-atlas.org/data_products/cams-global-forecast)) | Available (JASMIN cache access plus thin ADS adapter over maintained `cdsapi`; explicit CAMS forecast product for dates EAC4 does not yet cover) | None for JASMIN, whose public mirror currently holds files only up to 2025-10-03; free ADS account/token for later dates and automatic fallback |
+| NASA EMIT L1B/L2A ([EMIT](https://eo-atlas.org/products/sensor/emit)) | Available (thin adapter over maintained `earthaccess`) | None for CMR discovery; free Earthdata Login for protected NetCDF download |
+| Landsat 8/9 Collection 2 L1TP ([OLI](https://eo-atlas.org/products/sensor/oli), [OLI-2](https://eo-atlas.org/products/sensor/oli-2)) | Available (thin adapter over maintained EODAG USGS plugin; preserves tier and WRS-2 identity) | Free USGS EarthExplorer account and M2M application token via BYO credentials |
+
+Sensor links in the table go to [EO-Atlas](https://eo-atlas.org/), SpectraWorks' open catalogue of Earth observation satellites, sensors and data products, for background on each instrument.
 
 NOAA/NESDIS GSICS products are also mirrored on the EUMETSAT collaboration server's master THREDDS catalog (`nesdisProducts.xml`), so some NESDIS product families may already be reachable via the EUMETSAT connector default even while the canonical NOAA STAR host is down.
 
@@ -162,7 +164,7 @@ Call `spectraccess.core.schema.validate(df)` to check a frame against the schema
 `SchemaError` naming every violation found. Extra, connector-specific columns are always
 allowed and pass through validation untouched.
 
-Maintainer: SpectraWorks B.V. Built by SpectraWorks, makers of [RefCal](https://spectraworks.nl/refcal), the cross-sensor calibration layer.
+Maintainer: SpectraWorks B.V. Built by SpectraWorks, makers of [RefCal](https://spectraworks.nl/refcal), the cross-sensor calibration layer. Also from SpectraWorks: [EO-Atlas](https://eo-atlas.org/), a catalogue of Earth observation satellites, sensors and data products.
 
 spectrAccess code is licensed under Apache-2.0. Source data remains governed by each external portal's own data terms; see each connector's `DATA_TERMS.md`.
 

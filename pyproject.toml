@@ -49,6 +49,7 @@ Homepage = "https://github.com/SpectraWorksOSS/SpectrAccess"
 Repository = "https://github.com/SpectraWorksOSS/SpectrAccess"
 Issues = "https://github.com/SpectraWorksOSS/SpectrAccess/issues"
 "SpectraWorks RefCal" = "https://spectraworks.nl/refcal"
+"EO-Atlas" = "https://eo-atlas.org/"
 
 [project.optional-dependencies]
 cdse = [
