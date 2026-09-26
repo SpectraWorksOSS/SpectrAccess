@@ -1,25 +1,53 @@
-name: Publish to PyPI
+name: Release and publish to PyPI
+
+# One workflow on purpose: a GitHub Release created with GITHUB_TOKEN does not
+# trigger `release: published` in other workflows, so release-please and the
+# PyPI upload must run in the same run. Keep this filename and the `pypi`
+# environment: the PyPI trusted-publisher registration names both.
 
 on:
-  release:
-    types: [published]
+  push:
+    branches: [main]
 
 permissions:
   contents: read
 
 jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      # Opens or updates the release PR from Conventional Commits; when that PR
+      # is merged, tags v<version> and creates the GitHub Release.
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
   build:
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - name: Release tag matches the package version
+        env:
+          TAG: ${{ needs.release-please.outputs.tag_name }}
         run: |
           version=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")
-          if [ "$GITHUB_REF_NAME" != "v$version" ]; then
-            echo "Release tag $GITHUB_REF_NAME does not match pyproject version v$version" >&2
+          if [ "$TAG" != "v$version" ]; then
+            echo "Release tag $TAG does not match pyproject version v$version" >&2
             exit 1
           fi
       - name: Install build backend
@@ -40,9 +68,9 @@ jobs:
     permissions:
       # Required for PyPI trusted publishing (OIDC). No API token/secret
       # is stored in this repo: PyPI exchanges this token for a short-lived
-      # upload credential based on the pending publisher registered at
-      # https://pypi.org/manage/account/publishing/ (org, repo, workflow
-      # filename, and environment name below must match exactly).
+      # upload credential based on the publisher registered for this project
+      # (owner, repository, workflow filename publish.yml, and environment
+      # name pypi must match exactly).
       id-token: write
     steps:
       - uses: actions/download-artifact@v4
