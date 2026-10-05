@@ -16,7 +16,7 @@ jobs:
       fail-fast: false
       matrix:
         connector:
-          [gsics, modis_viirs_cal, radcalnet, sentinel2_cdse, aeronet, cams, emit_earthaccess, landsat_eodag]
+          [gsics, modis_viirs_cal, radcalnet, sentinel2_cdse, aeronet, cams, emit_earthaccess, landsat_eodag, olci_cdse, ngl_gnss, cams_pressure]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -53,6 +53,10 @@ jobs:
           # mirror; its ADS half prints SKIP until this repo secret is set
           # (free ADS account personal access token).
           ADS_TOKEN: ${{ secrets.ADS_TOKEN }}
+          # OLCI authenticates only a tiny manifest. SKIP without both secrets.
+          # CAMS pressure uses ADS_TOKEN above. NGL is public, no secret needed.
+          CDSE_USERNAME: ${{ secrets.CDSE_USERNAME }}
+          CDSE_PASSWORD: ${{ secrets.CDSE_PASSWORD }}
         run: python scripts/live_smoke.py "${{ matrix.connector }}"
       - name: Open or update upstream-back issue
         # The modis_viirs_cal smoke skips while NOAA STAR THREDDS is down but

@@ -72,6 +72,9 @@ print(table.head())
 | CAMS EAC4 / JASMIN ([CAMS forecast](https://eo-atlas.org/data_products/cams-global-forecast)) | Available (JASMIN cache access plus thin ADS adapter over maintained `cdsapi`; explicit CAMS forecast product for dates EAC4 does not yet cover) | None for JASMIN, whose public mirror currently holds files only up to 2025-10-03; free ADS account/token for later dates and automatic fallback |
 | NASA EMIT L1B/L2A ([EMIT](https://eo-atlas.org/products/sensor/emit)) | Available (thin adapter over maintained `earthaccess`) | None for CMR discovery; free Earthdata Login for protected NetCDF download |
 | Landsat 8/9 Collection 2 L1TP ([OLI](https://eo-atlas.org/products/sensor/oli), [OLI-2](https://eo-atlas.org/products/sensor/oli-2)) | Available (thin adapter over maintained EODAG USGS plugin; preserves tier and WRS-2 identity) | Free USGS EarthExplorer account and M2M application token via BYO credentials |
+| Sentinel-3 OLCI L2 IWV | Available (CDSETool discovery, selective download, canonical pixel IWV and QA) | Public discovery; CDSE_USERNAME/CDSE_PASSWORD or CDSETool credentials for download |
+| NGL GNSS troposphere | Available (station metadata, ZTD and gradients, no water-vapour conversion) | None; source licence conditions need provider confirmation where explicit permission is required |
+| CAMS EAC4 surface pressure | Available (regional single-epoch ADS request, canonical grid-cell pressure in Pa) | ADS_TOKEN and accepted EAC4 terms |
 
 Sensor links in the table go to [EO-Atlas](https://eo-atlas.org/), SpectraWorks' open catalogue of Earth observation satellites, sensors and data products, for background on each instrument.
 
@@ -163,6 +166,15 @@ cover, with unknown uncertainty; archive pixels remain a downstream concern.
 Call `spectraccess.core.schema.validate(df)` to check a frame against the schema; it raises
 `SchemaError` naming every violation found. Extra, connector-specific columns are always
 allowed and pass through validation untouched.
+
+Canonical v1 also registers optional observation-contract fields in
+`OBSERVATION_COLUMNS`: split uncertainty and correlation metadata, signed bias,
+likelihood, valid time and integration window, footprint/support/elevation,
+lineage, published prior/averaging kernel, QA and product versions. Existing
+outputs and uncertainty-status semantics stay unchanged. Missing optional fields
+mean unknown. The new OLCI, NGL and CAMS pressure paths emit canonical rows;
+their usage, field contract and release notes are in
+[atmospheric connectors](docs/atmospheric-connectors.md).
 
 Maintainer: SpectraWorks B.V. Built by SpectraWorks, makers of [RefCal](https://spectraworks.nl/refcal), the cross-sensor calibration layer. Also from SpectraWorks: [EO-Atlas](https://eo-atlas.org/), a catalogue of Earth observation satellites, sensors and data products.
 

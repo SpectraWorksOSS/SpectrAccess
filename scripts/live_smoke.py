@@ -3,7 +3,9 @@ from __future__ import annotations
 import os
 import sys
 import tempfile
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
+from pathlib import Path
+from xml.etree import ElementTree
 
 import requests
 
@@ -326,6 +328,71 @@ def smoke_landsat_eodag() -> None:
     print(f"Landsat discovery: {len(targets)} target(s), first {targets[0].title}")
 
 
+def smoke_olci_cdse() -> None:
+    if not os.environ.get("CDSE_USERNAME") or not os.environ.get("CDSE_PASSWORD"):
+        print("OLCI CDSE smoke SKIP: CDSE_USERNAME/CDSE_PASSWORD not set")
+        return
+    from cdsetool.credentials import Credentials
+    from cdsetool.download import download_file
+    from spectraccess.connectors.olci_cdse import OLCICDSEConnector
+    from spectraccess.connectors.sentinel2_cdse.connector import _CaptureLogger
+
+    targets = OLCICDSEConnector().discover(
+        bbox=(4.0,51.5,5.0,52.5), start=date(2024,5,1), end=date(2024,5,2), limit=1,
+    )
+    if not targets:
+        raise RuntimeError("OLCI CDSE discovery found no pinned LFR product")
+    target = targets[0]
+    # Authenticate on a tiny manifest. Full IWV/annotation downloads are too
+    # large for the weekly smoke; pixel parsing is covered by offline fixtures.
+    url = (f"https://download.dataspace.copernicus.eu/odata/v1/Products({target.product_id})"
+           f"/Nodes({target.title})/Nodes(xfdumanifest.xml)/$value")
+    log = _CaptureLogger()
+    with tempfile.TemporaryDirectory() as tmp:
+        manifest = Path(tmp)/"xfdumanifest.xml"
+        try:
+            ok = download_file(url,manifest,{"logger":log, "credentials":Credentials(
+                os.environ["CDSE_USERNAME"],os.environ["CDSE_PASSWORD"])})
+        except Exception:
+            raise RuntimeError("OLCI authenticated manifest smoke failed") from None
+        if not ok or log.errors or not manifest.exists() or not manifest.stat().st_size:
+            raise RuntimeError("OLCI authenticated manifest smoke returned no data")
+        ElementTree.parse(manifest)
+    print(f"OLCI CDSE: catalogue and authenticated manifest passed for {target.title}")
+
+
+def smoke_ngl_gnss() -> None:
+    from spectraccess.connectors.ngl_gnss import NGLGNSSConnector
+
+    connector = NGLGNSSConnector(max_bytes=2_000_000)
+    target = connector.discover(station="ABMF",day=date(2008,9,2))[0]
+    frame = connector.parse_canonical(connector.fetch(target))
+    delays = frame.loc[frame.quantity == "zenith_total_delay"]
+    if len(delays) != 288 or delays.elevation_m.isna().any():
+        raise RuntimeError("NGL smoke did not return a full pinned day and station height")
+    if not delays.units.eq("m").all() or not delays.unc_status.eq("provided").all():
+        raise RuntimeError("NGL ZTD units/formal errors did not match the contract")
+    print(f"NGL GNSS: {len(delays)} ZTD epochs with station metadata from {target.source_url}")
+
+
+def smoke_cams_pressure() -> None:
+    if not os.environ.get("ADS_TOKEN"):
+        print("CAMS surface pressure smoke SKIP: ADS_TOKEN not set")
+        return
+    from spectraccess.connectors.cams import CAMSConnector
+
+    connector = CAMSConnector(source="ads")
+    with tempfile.TemporaryDirectory() as tmp:
+        result = connector.fetch_surface_pressure(
+            valid_time=datetime(2024,5,1,9,tzinfo=timezone.utc),
+            area=(52.5,4.0,51.5,5.0),dest=Path(tmp)/"pressure.nc",
+        )
+        frame = connector.parse_surface_pressure(result)
+        if frame.empty or not frame.quantity.eq("surface_air_pressure").all():
+            raise RuntimeError("CAMS pressure smoke returned no canonical pressure rows")
+        print(f"CAMS EAC4 surface pressure: {len(frame)} regional cells from {result.source_url}")
+
+
 def main() -> int:
     connector = sys.argv[1] if len(sys.argv) > 1 else ""
     if connector == "gsics":
@@ -344,6 +411,12 @@ def main() -> int:
         smoke_emit_earthaccess()
     elif connector == "landsat_eodag":
         smoke_landsat_eodag()
+    elif connector == "olci_cdse":
+        smoke_olci_cdse()
+    elif connector == "ngl_gnss":
+        smoke_ngl_gnss()
+    elif connector == "cams_pressure":
+        smoke_cams_pressure()
     else:
         raise SystemExit(f"unknown connector {connector!r}")
     return 0
