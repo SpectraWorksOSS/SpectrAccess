@@ -17,4 +17,4 @@ best-efforts and does not guarantee availability.
 The connector follows a BYO-credentials model for downloads. It does not ship,
 retain, log, or redistribute account credentials. Public catalogue discovery
 does not require credentials; downloading a product requires the user's own
-CDSE account (or another credential mechanism supported by CDSETool).
+CDSE account; see [credentials](../../../../docs/credentials.md).

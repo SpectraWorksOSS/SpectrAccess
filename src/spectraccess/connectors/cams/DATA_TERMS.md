@@ -2,7 +2,8 @@
 
 This connector is Apache-2.0 code. CAMS source data remain governed by the
 Copernicus data licence and ECMWF/Atmosphere Data Store terms. Users bring
-their own ADS account and personal access token; spectrAccess does not proxy,
+their own ADS account and personal access token (see
+[credentials](../../../../docs/credentials.md)); spectrAccess does not proxy,
 re-serve, or bundle CAMS data.
 
 - Copernicus data licence: https://www.copernicus.eu/en/access-data/copernicus-data-and-information-policy

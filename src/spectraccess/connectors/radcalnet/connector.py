@@ -43,7 +43,7 @@ import pandas as pd
 
 from spectraccess.core.connector import Connector
 from spectraccess.core.schema import Uncertainty, UncertaintyStatus, empty_frame, uncertainty_columns, validate
-from spectraccess.core.session import CredentialConfig, CredentialSession
+from spectraccess.core.credentials import CredentialSource, CredentialSession
 
 DEFAULT_BASE_URL = "https://www.radcalnet.org/api/json/"
 
@@ -77,12 +77,6 @@ _ANCILLARY_ROWS: tuple[tuple[str, str], ...] = (
 
 
 @dataclass(frozen=True)
-class RadCalNetCredentials:
-    username_env: str = "RADCALNET_USERNAME"
-    password_env: str = "RADCALNET_PASSWORD"
-
-
-@dataclass(frozen=True)
 class RadCalNetTarget:
     """One file listed under ``api/json/{site}/data/`` (or ``datanc/``)."""
 
@@ -96,45 +90,30 @@ class RadCalNetTarget:
     kind: str | None = None  # "input" | "output" | "archive" | None
 
 
-def _credential_error(exc: Exception | None = None) -> ValueError:
-    return ValueError(
-        "RadCalNet credentials are required: set RADCALNET_USERNAME and "
-        "RADCALNET_PASSWORD (a free RadCalNet portal account; spectrAccess "
-        "ships no credentials of its own)."
-    ) if exc is None else exc
-
-
 class RadCalNetConnector(Connector):
     """Connector for RadCalNet's official JSON API."""
 
+    credential_provider = "radcalnet"
+
     def __init__(
         self,
-        credentials: RadCalNetCredentials | None = None,
+        credentials: CredentialSource | None = None,
         *,
         base_url: str = DEFAULT_BASE_URL,
         timeout: float = 60,
     ) -> None:
-        creds = credentials or RadCalNetCredentials()
-        config = CredentialConfig(username_env=creds.username_env, password_env=creds.password_env)
-        try:
-            self.credential_session = CredentialSession(config=config)
-        except ValueError as exc:
-            raise _credential_error() from exc
-        if self.credential_session.session.auth is None:
-            raise _credential_error()
+        self.credentials = credentials
         self.base_url = base_url.rstrip("/") + "/"
         self.timeout = timeout
 
     @property
     def _session(self):
-        return self.credential_session.session
+        return CredentialSession("radcalnet", self.credentials)
 
     def _get_json(self, url: str) -> list[dict]:
-        response = self._session.get(url, timeout=self.timeout)
-        if response.status_code == 401:
-            raise _credential_error()
-        response.raise_for_status()
-        return response.json()
+        with self._session as session:
+            with session.get(url, timeout=self.timeout) as response:
+                return response.json()
 
     def sites(self) -> list[str]:
         """Return the live list of RadCalNet site codes (dynamic -- never hardcoded)."""
@@ -220,20 +199,16 @@ class RadCalNetConnector(Connector):
                 f"refusing to fetch off-origin RadCalNet URL host {offending_host!r}: "
                 "credentials are only ever sent to the configured RadCalNet origin"
             )
-        response = self._session.get(url, timeout=self.timeout, stream=dest is not None)
-        if response.status_code == 401:
-            raise _credential_error()
-        response.raise_for_status()
-
-        if dest is None:
-            return response.content
-
-        dest_path = Path(dest)
-        dest_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(dest_path, "wb") as fh:
-            for chunk in response.iter_content(chunk_size=65536):
-                fh.write(chunk)
-        return str(dest_path)
+        with self._session as session:
+            with session.get(url, timeout=self.timeout, stream=dest is not None) as response:
+                if dest is None:
+                    return response.content
+                dest_path = Path(dest)
+                dest_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(dest_path, "wb") as fh:
+                    for chunk in response.iter_content(chunk_size=65536):
+                        fh.write(chunk)
+                return str(dest_path)
 
     def _parse_kwargs_for(self, target: object) -> dict[str, object]:
         if isinstance(target, RadCalNetTarget):

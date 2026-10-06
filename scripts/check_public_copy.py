@@ -35,6 +35,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 PUBLIC_COPY = (
     "OVERVIEW.md",
+    "docs/credentials.md",
     "CHANGELOG.md",
     "CONTRIBUTING.md",
     "CITATION.cff",

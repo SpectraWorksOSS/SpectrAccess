@@ -18,8 +18,15 @@ Community contributions are welcome, especially new connectors for spectral refe
    public endpoints that should be monitored weekly.
 
 Do not hardcode credentials or redistribute third-party data through this
-project. Connectors should use the BYO-credentials helpers in
-`spectraccess.core.session` when authentication is required.
+project. Declare `credential_provider` from the `PROVIDERS` registry in
+`spectraccess.core.credentials`. Accept a `credentials=` source and call
+`resolve(provider, source)` for each authenticated operation. Always hand the
+resolved credential to the client explicitly, disabling client credential-file
+and environment fallbacks. Use `CredentialSession` for HTTP access. Use the
+shared `provider_error` and scrub helper for client failures; HTTP 401/403 raises
+`CredentialRejected`. Raise scrubbed exceptions outside the except block so raw
+secrets cannot survive in an exception chain. Add mocked handoff, ignored-env,
+rotation and rejection tests. See [credentials](docs/credentials.md).
 
 
 ## Commit Messages
@@ -34,7 +41,7 @@ write release entries by hand.
 ## Public Copy
 
 `OVERVIEW.md` is the PyPI project page. It, `CHANGELOG.md`, this file,
-`CITATION.cff`, the `pyproject.toml` metadata, each connector's `DATA_TERMS.md`,
+`CITATION.cff`, `docs/credentials.md`, the `pyproject.toml` metadata, each connector's `DATA_TERMS.md`,
 and commit messages are checked in CI by `scripts/check_public_copy.py`: plain
 ASCII hyphens and straight quotes only, no double hyphen used as a dash. Run it
 locally with `python scripts/check_public_copy.py`.

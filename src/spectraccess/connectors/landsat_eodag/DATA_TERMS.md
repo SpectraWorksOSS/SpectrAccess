@@ -10,5 +10,6 @@ bring-your-own-account model and does not redistribute Landsat archives.
 - EODAG USGS provider documentation: https://eodag.readthedocs.io/en/stable/getting_started_guide/register.html#usgs
 
 Discovery and download require the account/credential form accepted by the
-current EODAG USGS plugin. Users are responsible for complying with USGS terms
+current EODAG USGS plugin; see [credentials](../../../../docs/credentials.md).
+Users are responsible for complying with USGS terms
 and retaining source acknowledgement in derived products.

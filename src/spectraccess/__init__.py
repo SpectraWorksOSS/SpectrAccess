@@ -2,7 +2,9 @@
 
 from importlib.metadata import PackageNotFoundError, version
 
-__all__ = ["__version__"]
+from .core.credentials import Credential, CredentialMissing, CredentialRejected, login, logout, status
+
+__all__ = ["__version__", "Credential", "CredentialMissing", "CredentialRejected", "login", "logout", "status"]
 
 try:
     # pyproject.toml is the single version source; installed metadata carries it.

@@ -9,11 +9,14 @@ from .schema import (
     empty_frame,
     validate,
 )
-from .session import CredentialSession
+from .credentials import Credential, CredentialMissing, CredentialRejected, CredentialSession
 
 __all__ = [
     "Connector",
     "CredentialSession",
+    "Credential",
+    "CredentialMissing",
+    "CredentialRejected",
     "SCHEMA_VERSION",
     "UncertaintyStatus",
     "Uncertainty",

@@ -7,6 +7,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 
 import pytest
+from spectraccess.core.credentials import Credential
 
 # earthaccess (the EMIT extra) requires Python >=3.12; the test extra installs
 # it only there, so these tests run on 3.12+ and skip on 3.10/3.11.
@@ -256,49 +257,45 @@ def test_discover_fails_closed_on_collection_or_asset_metadata_drift(monkeypatch
         EMITEarthaccessConnector().discover()
 
 
-def test_fetch_downloads_one_selected_asset_and_verifies_sha512(monkeypatch, tmp_path):
+def test_fetch_downloads_one_selected_asset_and_verifies_sha512(monkeypatch, tmp_path, requests_mock):
     targets, _calls = _discover(monkeypatch)
     target = targets[0]
     payload = b"small-fixture-not-an-emit-cube"
     checksum = hashlib.sha512(payload).hexdigest()
     target = replace(target, checksums={**target.checksums, PRIMARY: ("SHA-512", checksum)})
-    login_calls = []
-    download_calls = []
-
-    monkeypatch.setattr(
-        module.earthaccess, "login", lambda **kwargs: login_calls.append(kwargs)
-    )
-
-    def fake_download(urls, *, local_path, threads, show_progress):
-        download_calls.append((urls, Path(local_path), threads, show_progress))
-        output = Path(local_path) / PRIMARY
-        output.write_bytes(payload)
-        return [output]
-
-    monkeypatch.setattr(module.earthaccess, "download", fake_download)
-    path = EMITEarthaccessConnector().fetch(target, dest=tmp_path)
+    monkeypatch.setattr(module.earthaccess, "login", lambda **kwargs: pytest.fail("earthaccess login called"))
+    monkeypatch.setattr(module.earthaccess, "download", lambda *args, **kwargs: pytest.fail("earthaccess download called"))
+    requests_mock.get(BASE + PRIMARY, content=payload)
+    path = EMITEarthaccessConnector(credentials=Credential("token", "fixture-token")).fetch(target, dest=tmp_path)
     assert Path(path).read_bytes() == payload
-    assert login_calls == [{"strategy": "environment"}]
-    assert download_calls == [([BASE + PRIMARY], tmp_path, 1, False)]
+    assert requests_mock.last_request.headers["Authorization"] == "Bearer fixture-token"
 
 
-def test_fetch_rejects_off_origin_and_checksum_mismatch(monkeypatch, tmp_path):
+def test_fetch_rejects_off_origin_and_checksum_mismatch(monkeypatch, tmp_path, requests_mock):
     targets, _calls = _discover(monkeypatch)
     target = targets[0]
     poisoned = replace(target, assets={PRIMARY: "https://evil.example/scene.nc"})
     with pytest.raises(EMITDownloadError, match="off-origin"):
         EMITEarthaccessConnector().fetch(poisoned, dest=tmp_path)
 
-    monkeypatch.setattr(module.earthaccess, "login", lambda **_kwargs: None)
-
-    def fake_download(_urls, *, local_path, **_kwargs):
-        output = Path(local_path) / PRIMARY
-        output.write_bytes(b"wrong")
-        return [output]
-
-    monkeypatch.setattr(module.earthaccess, "download", fake_download)
+    requests_mock.get(BASE + PRIMARY, content=b"wrong")
     with pytest.raises(EMITDownloadError, match="checksum mismatch"):
-        EMITEarthaccessConnector().fetch(target, dest=tmp_path)
+        EMITEarthaccessConnector(credentials=Credential("token", "fixture-token")).fetch(target, dest=tmp_path)
+
+
+def test_fetch_rotation_ignores_earthdata_environment(monkeypatch, tmp_path, requests_mock):
+    targets, _calls = _discover(monkeypatch)
+    target = targets[0]
+    monkeypatch.setenv("EARTHDATA_TOKEN", "ignored")
+    monkeypatch.setenv("EARTHDATA_USERNAME", "ignored")
+    monkeypatch.setenv("EARTHDATA_PASSWORD", "ignored")
+    monkeypatch.setattr(module.earthaccess, "login", lambda **kwargs: pytest.fail("earthaccess login called"))
+    secrets = iter(["first", "replacement"])
+    connector = EMITEarthaccessConnector(credentials=lambda: Credential("token", next(secrets)))
+    requests_mock.get(BASE + PRIMARY, content=b"fixture")
+    for expected in ("first", "replacement"):
+        connector.fetch(target, dest=tmp_path, verify_checksum=False)
+        assert requests_mock.last_request.headers["Authorization"] == f"Bearer {expected}"
 
 
 def test_l1b_primary_selector_does_not_ambiguously_include_observation_companion():

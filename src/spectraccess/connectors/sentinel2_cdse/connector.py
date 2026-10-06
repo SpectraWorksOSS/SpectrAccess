@@ -22,6 +22,9 @@ from typing import Any, Mapping
 import pandas as pd
 
 from spectraccess.core.connector import Connector
+from spectraccess.core.credentials import Credential, CredentialSource, CredentialMissing, resolve, provider_error
+from spectraccess.core.credentials import describe_error
+
 from spectraccess.core.schema import (
     Uncertainty,
     UncertaintyStatus,
@@ -134,19 +137,34 @@ class _CaptureLogger:
         return None
 
 
+class _ExplicitCredentials(Credentials):
+    @staticmethod
+    def make_session(*args, **kwargs):
+        session = Credentials.make_session(*args, **kwargs)
+        session.trust_env = False
+        def reject_auth(response, **_kwargs):
+            if response.status_code in (401, 403):
+                response.raise_for_status()
+            return response
+        session.hooks["response"].append(reject_auth)
+        return session
+
+
 class Sentinel2CDSEConnector(Connector):
     """Thin public adapter over CDSETool for Sentinel-2 MSI Level-1C products.
 
     Discovery is public and does not require credentials. Downloads use
-    CDSETool's BYO-credential path: pass ``username`` + ``password``, an
-    existing CDSETool ``credentials`` object, or let CDSETool read ``.netrc``.
+    the OS keyring or a credential source supplied in code.
     Credentials are never retained on this connector or added to provenance.
     """
 
-    def __init__(self, *, max_attempts: int = 3) -> None:
+    credential_provider = "cdse"
+
+    def __init__(self, *, max_attempts: int = 3, credentials: CredentialSource | None = None) -> None:
         if max_attempts < 1:
             raise ValueError("max_attempts must be >= 1")
         self.max_attempts = max_attempts
+        self.credentials = credentials
 
     def discover(
         self,
@@ -256,7 +274,7 @@ class Sentinel2CDSEConnector(Connector):
         dest: str | Path,
         username: str | None = None,
         password: str | None = None,
-        credentials: object | None = None,
+        credentials: CredentialSource | None = None,
         overwrite_existing: bool = False,
         filter_pattern: str | None = None,
         tmpdir: str | Path | None = None,
@@ -276,19 +294,25 @@ class Sentinel2CDSEConnector(Connector):
             "logger": log,
             "overwrite_existing": overwrite_existing,
         }
-        if credentials is not None:
-            options["credentials"] = credentials
-        elif username is not None and password is not None:
-            options["credentials"] = Credentials(username, password)
+        source = credentials if credentials is not None else self.credentials
+        if username is not None and password is not None:
+            source = Credential("password", password, username)
+        credential = resolve("cdse", source)
         if filter_pattern is not None:
             options["filter_pattern"] = filter_pattern
         if tmpdir is not None:
             options["tmpdir"] = str(tmpdir)
 
+        failure = None
         try:
+            options["credentials"] = _ExplicitCredentials(credential.account, credential.secret)
             filename = download_feature(deepcopy(dict(target.raw)), str(output_dir), options)
         except Exception as exc:
-            raise CDSEDownloadError(f"CDSETool download failed for {target.product_id}: {exc}") from exc
+            failure = provider_error("cdse", source, exc, credential, CDSEDownloadError)
+        if failure is not None:
+            raise failure from None
+        log.errors = [describe_error(RuntimeError(message), secret=credential.secret) for message in log.errors]
+        log.warnings = [describe_error(RuntimeError(message), secret=credential.secret) for message in log.warnings]
         _raise_download_errors(target, log)
         if not filename:
             raise CDSEDownloadError(

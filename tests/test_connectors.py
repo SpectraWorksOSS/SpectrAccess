@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
+from spectraccess.core.credentials import Credential, CredentialRejected
 
 from spectraccess.connectors.gsics import GSICSConnector
 from spectraccess.connectors.gsics.connector import GSICSCatalog, to_canonical
@@ -265,14 +266,14 @@ def test_modis_is_documented_stub():
 def _radcalnet_connector(monkeypatch) -> RadCalNetConnector:
     monkeypatch.setenv("RADCALNET_USERNAME", "user")
     monkeypatch.setenv("RADCALNET_PASSWORD", "secret")
-    return RadCalNetConnector()
+    return RadCalNetConnector(credentials=Credential("password", "secret", "user"))
 
 
 def test_radcalnet_requires_credentials(monkeypatch):
     monkeypatch.delenv("RADCALNET_USERNAME", raising=False)
     monkeypatch.delenv("RADCALNET_PASSWORD", raising=False)
-    with pytest.raises(ValueError, match="RADCALNET_USERNAME"):
-        RadCalNetConnector()
+    with pytest.raises(ValueError, match="spectraccess login radcalnet"):
+        RadCalNetConnector().sites()
 
 
 def test_radcalnet_sites_via_requests_mock(monkeypatch, requests_mock):
@@ -357,7 +358,7 @@ def test_radcalnet_fetch_401_raises_credentials_error(monkeypatch, requests_mock
     connector = _radcalnet_connector(monkeypatch)
     target = RadCalNetTarget(site="GSCN", filename="x.output", url=f"{DEFAULT_BASE_URL}GSCN/data/x.output", fmt="ascii")
     requests_mock.get(target.url, status_code=401)
-    with pytest.raises(ValueError, match="RADCALNET_USERNAME"):
+    with pytest.raises(CredentialRejected, match="radcalnet"):
         connector.fetch(target)
 
 

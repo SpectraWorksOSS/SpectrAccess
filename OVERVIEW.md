@@ -60,18 +60,24 @@ table = connector.parse(raw)
 print(table.head())
 ```
 
+## Credentials
+
+Run `spectraccess login <provider>` once for personal access, or hand over a
+credential source in code. See [credentials and migration to 0.2](docs/credentials.md).
+Credential environment variables and provider-client login files are no longer read.
+
 ## Connectors
 
 | Connector | Status | Auth requirement |
 | --- | --- | --- |
 | GSICS GPPA | Available (EUMETSAT live, verified end-to-end; CMA catalog live but content-empty as of 2026-07-05; NOAA STAR pending, host unreachable 2026-07-05) | None for public THREDDS catalogs |
 | MODIS/VIIRS calibration LUT ([VIIRS](https://eo-atlas.org/products/sensor/viirs), [MODIS](https://eo-atlas.org/products/sensor/modis)) | VIIRS connector shape available; NOAA STAR F-factor THREDDS URL pending verification; MODIS planned | None for public VIIRS THREDDS; MODIS source design pending |
-| RadCalNet | Available (official JSON API; checked by hand against the live portal, 2026-07) | Free portal account; HTTP Basic auth via BYO credentials |
-| Sentinel-2 CDSE ([MSI](https://eo-atlas.org/products/sensor/msi)) | Available (thin adapter over maintained `cdsetool`; public discovery, BYO-credential download) | None for catalogue discovery; free CDSE account for product download |
+| RadCalNet | Available (official JSON API; checked by hand against the live portal, 2026-07) | Free portal account; see [credentials](docs/credentials.md) |
+| Sentinel-2 CDSE ([MSI](https://eo-atlas.org/products/sensor/msi)) | Available (thin adapter over maintained `cdsetool`; public discovery, BYO-credential download) | None for catalogue discovery; free CDSE account for product download; see [credentials](docs/credentials.md) |
 | NASA AERONET v3 | Available (native client for the public v3 web service; per-band AOD, Angstrom exponent, precipitable water; 550 nm AOD interpolation helper) | None; cite AERONET and the site PI (see `DATA_TERMS.md`) |
-| CAMS EAC4 / JASMIN ([CAMS forecast](https://eo-atlas.org/data_products/cams-global-forecast)) | Available (JASMIN cache access plus thin ADS adapter over maintained `cdsapi`; explicit CAMS forecast product for dates EAC4 does not yet cover) | None for JASMIN, whose public mirror currently holds files only up to 2025-10-03; free ADS account/token for later dates and automatic fallback |
-| NASA EMIT L1B/L2A ([EMIT](https://eo-atlas.org/products/sensor/emit)) | Available (thin adapter over maintained `earthaccess`) | None for CMR discovery; free Earthdata Login for protected NetCDF download |
-| Landsat 8/9 Collection 2 L1TP ([OLI](https://eo-atlas.org/products/sensor/oli), [OLI-2](https://eo-atlas.org/products/sensor/oli-2)) | Available (thin adapter over maintained EODAG USGS plugin; preserves tier and WRS-2 identity) | Free USGS EarthExplorer account and M2M application token via BYO credentials |
+| CAMS EAC4 / JASMIN ([CAMS forecast](https://eo-atlas.org/data_products/cams-global-forecast)) | Available (JASMIN cache access plus thin ADS adapter over maintained `cdsapi`; explicit CAMS forecast product for dates EAC4 does not yet cover) | None for JASMIN, whose public mirror currently holds files only up to 2025-10-03; free ADS account/token for later dates and automatic fallback; see [credentials](docs/credentials.md) |
+| NASA EMIT L1B/L2A ([EMIT](https://eo-atlas.org/products/sensor/emit)) | Available (thin adapter over maintained `earthaccess`) | None for CMR discovery; free Earthdata Login for protected NetCDF download; see [credentials](docs/credentials.md) |
+| Landsat 8/9 Collection 2 L1TP ([OLI](https://eo-atlas.org/products/sensor/oli), [OLI-2](https://eo-atlas.org/products/sensor/oli-2)) | Available (thin adapter over maintained EODAG USGS plugin; preserves tier and WRS-2 identity) | Free USGS EarthExplorer account and M2M application token; see [credentials](docs/credentials.md) |
 
 Sensor links in the table go to [EO-Atlas](https://eo-atlas.org/), SpectraWorks' open catalogue of Earth observation satellites, sensors and data products, for background on each instrument.
 
@@ -141,7 +147,7 @@ cache status, and exact local assets are retained as native provenance. The
 connector retrieves source assets only; atmospheric-correction and
 model-specific format conversion remain downstream responsibilities.
 Constructor arguments override environment variables: `CAMS_SOURCE`,
-`ADS_TOKEN`, `CAMS_FORECAST_CYCLE`, `CAMS_FORECAST_LEAD_HOURS`,
+`CAMS_FORECAST_CYCLE`, `CAMS_FORECAST_LEAD_HOURS`,
 `SPECTRACCESS_CAMS_CACHE_DIR` (default `~/.cache/spectraccess/cams`), and
 `SPECTRACCESS_CAMS_FALLBACK_URL` (a second mirror with the JASMIN layout).
 

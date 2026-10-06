@@ -25,6 +25,8 @@ import pandas as pd
 
 from spectraccess.core.assumptions import AssumptionBasis, AssumptionRecord
 from spectraccess.core.connector import Connector
+from spectraccess.core.credentials import Credential, CredentialSource, CredentialMissing, resolve, provider_error
+from spectraccess.core.credentials import describe_error as _describe_error
 
 CAMSMode = Literal["auto", "jasmin", "ads", "ads-forecast"]
 CAMSResolvedSource = Literal["jasmin", "ads", "cache-unknown"]
@@ -141,11 +143,12 @@ class CAMSResult:
 class CAMSConnector(Connector):
     """Public CAMS access wrapper with JASMIN-preferred ADS fallback.
 
-    ADS credentials are bring-your-own: pass ``ads_token`` or set
-    ``ADS_TOKEN``.  Tokens are never stored in results, frames, logs, or error
+    ADS credentials come from the keyring or a handed-over source.  Tokens are never stored in results, frames, logs, or error
     messages.  ``auto`` falls back to ADS only after a definitive JASMIN date
     gap; provider/network errors remain hard failures.
     """
+
+    credential_provider = "ads"
 
     def __init__(
         self,
@@ -153,6 +156,7 @@ class CAMSConnector(Connector):
         cache_dir: str | Path | None = None,
         source: CAMSMode | None = None,
         ads_token: str | None = None,
+        credentials: CredentialSource | None = None,
         forecast_cycle: str | None = None,
         forecast_lead_time_hours: int | None = None,
         fallback_url: str | None = None,
@@ -174,7 +178,9 @@ class CAMSConnector(Connector):
             or os.environ.get("SPECTRACCESS_CAMS_CACHE_DIR", "")
             or Path.home() / ".cache" / "spectraccess" / "cams"
         )
-        self.ads_token = (ads_token or os.environ.get("ADS_TOKEN", "")).strip() or None
+        if credentials is not None and ads_token is not None:
+            raise ValueError("pass credentials or ads_token, not both")
+        self.credentials = credentials if credentials is not None else (Credential("token", ads_token) if ads_token is not None else None)
         configured_cycle = forecast_cycle or os.environ.get("CAMS_FORECAST_CYCLE", "")
         configured_lead = forecast_lead_time_hours
         if configured_lead is None and os.environ.get("CAMS_FORECAST_LEAD_HOURS", "").strip():
@@ -204,7 +210,11 @@ class CAMSConnector(Connector):
 
     @property
     def ads_available(self) -> bool:
-        return bool(self.ads_token)
+        try:
+            resolve("ads", self.credentials)
+        except CredentialMissing:
+            return False
+        return True
 
     def discover(
         self,
@@ -401,10 +411,7 @@ class CAMSConnector(Connector):
         )
 
     def _fetch_ads(self, target: CAMSTarget) -> CAMSResult:
-        if not self.ads_token:
-            raise CAMSCredentialsError(
-                "ADS personal access token is required; pass ads_token or set ADS_TOKEN"
-            )
+        credential = resolve("ads", self.credentials)
         date_dir = target.cache_root / target.date_label
         path = date_dir / f"cams_eac4_{target.date_label}.nc"
         cache_hit = path.exists()
@@ -420,9 +427,9 @@ class CAMSConnector(Connector):
                 "time": list(ADS_TIMES),
                 "data_format": "netcdf",
             }
-            ads_failure: str | None = None
+            ads_failure: Exception | None = None
             try:
-                client = _cds_client(ADS_API_URL, self.ads_token)
+                client = _cds_client(ADS_API_URL, credential.secret)
                 client.retrieve(ADS_DATASET, request, str(tmp))
                 if not tmp.exists() or tmp.stat().st_size == 0:
                     raise CAMSProviderError("ADS retrieval completed without a non-empty output file")
@@ -437,20 +444,15 @@ class CAMSConnector(Connector):
                 resolved_source = manifest.resolved_source
                 resolved_url = manifest.source_url
                 retrieved_at = manifest.recorded_at
-            except CAMSProviderError:
-                tmp.unlink(missing_ok=True)
-                raise
             except Exception as exc:
                 tmp.unlink(missing_ok=True)
-                ads_failure = (
-                    f"ADS retrieval failed for {target.scene_date.date()} "
-                    f"({_describe_error(exc, secret=self.ads_token)})"
-                )
+                error_type = type(exc) if isinstance(exc, CAMSProviderError) else CAMSProviderError
+                ads_failure = provider_error("ads", self.credentials, exc, credential, error_type)
             # Raised outside the except block: `from None` only hides the raw
             # provider exception from tracebacks, it would still sit on
             # __context__, and that exception can carry the ADS token.
             if ads_failure is not None:
-                raise CAMSProviderError(ads_failure)
+                raise ads_failure from None
         else:
             manifest = _read_source_manifest(
                 date_dir,
@@ -483,10 +485,7 @@ class CAMSConnector(Connector):
         )
 
     def _fetch_ads_forecast(self, target: CAMSTarget) -> CAMSResult:
-        if not self.ads_token:
-            raise CAMSCredentialsError(
-                "ADS personal access token is required; pass ads_token or set ADS_TOKEN"
-            )
+        credential = resolve("ads", self.credentials)
         cycle = self.forecast_cycle
         lead_time_hours = self.forecast_lead_time_hours
         if cycle not in ADS_FORECAST_CYCLES or lead_time_hours is None or lead_time_hours <= 0:
@@ -509,9 +508,9 @@ class CAMSConnector(Connector):
                 "type": ["forecast"],
                 "data_format": "netcdf",
             }
-            ads_failure: str | None = None
+            ads_failure: Exception | None = None
             try:
-                client = _cds_client(ADS_API_URL, self.ads_token)
+                client = _cds_client(ADS_API_URL, credential.secret)
                 client.retrieve(ADS_FORECAST_DATASET, request, str(tmp))
                 if not tmp.exists() or tmp.stat().st_size == 0:
                     raise CAMSProviderError("ADS forecast retrieval completed without a non-empty output file")
@@ -530,20 +529,15 @@ class CAMSConnector(Connector):
                 resolved_source = manifest.resolved_source
                 resolved_url = manifest.source_url
                 retrieved_at = manifest.recorded_at
-            except CAMSProviderError:
-                tmp.unlink(missing_ok=True)
-                raise
             except Exception as exc:
                 tmp.unlink(missing_ok=True)
-                ads_failure = (
-                    f"ADS forecast retrieval failed for {target.scene_date.date()} "
-                    f"({_describe_error(exc, secret=self.ads_token)})"
-                )
+                error_type = type(exc) if isinstance(exc, CAMSProviderError) else CAMSProviderError
+                ads_failure = provider_error("ads", self.credentials, exc, credential, error_type)
             # Raised outside the except block: `from None` only hides the raw
             # provider exception from tracebacks, it would still sit on
             # __context__, and that exception can carry the ADS token.
             if ads_failure is not None:
-                raise CAMSProviderError(ads_failure)
+                raise ads_failure from None
         else:
             manifest = _read_source_manifest(
                 date_dir,
@@ -625,25 +619,6 @@ class CAMSConnector(Connector):
         raise CAMSProviderError(
             f"CAMS mirror download failed after {self.max_attempts} attempts ({_describe_error(last)})"
         ) from last
-
-
-def _describe_error(exc: BaseException | None, *, secret: str | None = None) -> str:
-    """Name and message of a provider error, with ``secret`` scrubbed out.
-
-    ADS errors can echo the personal access token, so ADS failures raise
-    ``from None`` and carry this scrubbed text instead of the raw cause.
-    """
-    if exc is None:
-        return "unknown error"
-    text = str(exc)
-    if secret:
-        for part in {secret, *secret.split(":")}:
-            if len(part) >= 8:
-                text = text.replace(part, "<redacted>")
-    text = " ".join(text.split())
-    if len(text) > 500:
-        text = text[:500] + "..."
-    return f"{type(exc).__name__}: {text}" if text else type(exc).__name__
 
 
 def _cds_client(url: str, token: str):

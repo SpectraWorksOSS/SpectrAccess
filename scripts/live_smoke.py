@@ -6,6 +6,7 @@ import tempfile
 from datetime import datetime, timezone
 
 import requests
+from spectraccess.core.credentials import Credential
 
 from spectraccess.connectors.gsics.connector import DEFAULT_CATALOGS, GSICSCatalog, GSICSConnector
 from spectraccess.connectors.modis_viirs_cal.connector import VIIRSCatalog, VIIRSCalibrationConnector
@@ -130,7 +131,7 @@ def smoke_radcalnet() -> None:
         print("RadCalNet smoke SKIPPED: RADCALNET_USERNAME/RADCALNET_PASSWORD not set")
         return
 
-    connector = RadCalNetConnector()
+    connector = RadCalNetConnector(credentials=lambda: Credential("password", os.environ["RADCALNET_PASSWORD"], os.environ["RADCALNET_USERNAME"]))
     sites = connector.sites()
     if len(sites) < 6:
         raise RuntimeError(f"RadCalNet sites() returned too few sites: {sites}")
@@ -265,7 +266,7 @@ def smoke_cams() -> None:
         return
     # BYO ADS token: one day of the three EAC4 variables (small global netCDF).
     with tempfile.TemporaryDirectory() as cache_dir:
-        ads = CAMSConnector(cache_dir=cache_dir, source="ads", max_attempts=2)
+        ads = CAMSConnector(cache_dir=cache_dir, source="ads", max_attempts=2, credentials=lambda: Credential("token", os.environ["ADS_TOKEN"]))
         result = ads.fetch(ads.discover(scene_date=_CAMS_JASMIN_DATE)[0])
         if result.resolved_source != "ads" or result.stratum != "eac4-reanalysis":
             raise RuntimeError(
@@ -301,7 +302,8 @@ def smoke_emit_earthaccess() -> None:
 
 
 def smoke_landsat_eodag() -> None:
-    from spectraccess.connectors.landsat_eodag.connector import PASSWORD_ENV, USERNAME_ENV
+    USERNAME_ENV = "EODAG__USGS__API__CREDENTIALS__USERNAME"
+    PASSWORD_ENV = "EODAG__USGS__API__CREDENTIALS__PASSWORD"
 
     # USGS M2M needs credentials even for search (EODAG prunes the provider
     # without them), so an unconfigured repo must SKIP, not fail.
@@ -310,7 +312,7 @@ def smoke_landsat_eodag() -> None:
         return
     from spectraccess.connectors.landsat_eodag import LandsatEodagConnector, target_to_canonical
 
-    targets = LandsatEodagConnector().discover(
+    targets = LandsatEodagConnector(credentials=lambda: Credential("password", os.environ[PASSWORD_ENV], os.environ[USERNAME_ENV])).discover(
         bbox=(4.80, 52.30, 4.95, 52.40),
         start=datetime(2024, 5, 1, tzinfo=timezone.utc),
         end=datetime(2024, 5, 31, tzinfo=timezone.utc),

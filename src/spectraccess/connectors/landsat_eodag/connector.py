@@ -9,9 +9,12 @@ and canonical metadata output.  It deliberately does not parse Landsat pixels.
 from __future__ import annotations
 
 import logging
-import os
 import re
 import tempfile
+from contextlib import contextmanager
+from types import SimpleNamespace
+from threading import RLock
+from unittest.mock import patch
 from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
@@ -20,8 +23,11 @@ from pathlib import Path
 from typing import Any, Mapping
 
 import pandas as pd
+import requests
 
 from spectraccess.core.connector import Connector
+from spectraccess.core.credentials import Credential, CredentialSource, resolve, provider_error, describe_error
+
 from spectraccess.core.schema import (
     Uncertainty,
     UncertaintyStatus,
@@ -46,8 +52,6 @@ PROVIDER = "usgs"
 COLLECTION = "LANDSAT_C2L1"
 USGS_COLLECTION = "landsat_ot_c2_l1"
 USGS_API_PLUGIN_TYPE = "UsgsApi"
-USERNAME_ENV = "EODAG__USGS__API__CREDENTIALS__USERNAME"
-PASSWORD_ENV = "EODAG__USGS__API__CREDENTIALS__PASSWORD"
 SOURCE = "usgs-earth-resources-observation-and-science-center"
 SOURCE_AGENCY = "U.S. Geological Survey"
 CATALOGUE_URL = "https://earthexplorer.usgs.gov/"
@@ -123,10 +127,12 @@ class LandsatEodagConnector(Connector):
     """Thin public adapter over EODAG's USGS Landsat Collection-2 client.
 
     Credentials are BYO. Pass ``username`` and ``password`` to the constructor,
-    or use EODAG's standard USGS credential environment variables. The password
+    or hand over a credential source. The password
     slot is the USGS M2M application token. Credentials are only handed to
     EODAG and are never included in targets or output provenance.
     """
+
+    credential_provider = "usgs"
 
     def __init__(
         self,
@@ -136,21 +142,31 @@ class LandsatEodagConnector(Connector):
         username: str | None = None,
         password: str | None = None,
         gateway: Any | None = None,
+        credentials: CredentialSource | None = None,
     ) -> None:
         if (username is None) != (password is None):
             raise ValueError("username and password must be provided together")
+        if credentials is not None and username is not None:
+            raise ValueError("pass credentials or username/password, not both")
+        self.credentials = credentials if credentials is not None else (Credential("password", password, username) if username is not None else None)
         self.provider = provider
         self.collection = collection
-        self._dag = gateway or EODataAccessGateway(user_conf_file_path=_empty_eodag_config())
-        provider_config = _provider_config(
-            provider,
-            collection=collection,
-            username=username,
-            password=password,
-        )
-        if provider_config:
-            self._dag.update_providers_config(dict_conf=provider_config)
+        self._dag = gateway or _gateway()
+        if self.credentials is not None:
+            self._handoff()
         self._dag.set_preferred_provider(provider)
+
+    def _handoff(self):
+        credential = resolve("usgs", self.credentials)
+        failure = None
+        try:
+            self._dag.update_providers_config(dict_conf=_provider_config(
+                self.provider, collection=self.collection, username=credential.account, password=credential.secret))
+        except Exception as exc:
+            failure = provider_error("usgs", self.credentials, exc, credential, LandsatProviderError)
+        if failure is not None:
+            raise failure from None
+        return credential
 
     def discover(
         self,
@@ -232,10 +248,15 @@ class LandsatEodagConnector(Connector):
     def _search(
         self, search_kwargs: Mapping[str, Any], *, skip_non_contract: bool = True
     ) -> list[LandsatTarget]:
+        credential = self._handoff()
+        failure = None
         try:
-            products = self._dag.search(**dict(search_kwargs))
+            with _usgs_memory_session(credential, self.credentials, LandsatProviderError):
+                products = self._dag.search(**dict(search_kwargs))
         except Exception as exc:
-            raise LandsatProviderError(f"USGS Landsat discovery failed: {exc}") from exc
+            failure = provider_error("usgs", self.credentials, exc, credential, LandsatProviderError)
+        if failure is not None:
+            raise failure from None
         retrieved_at = datetime.now(timezone.utc)
         targets = []
         for product in products:
@@ -269,12 +290,15 @@ class LandsatEodagConnector(Connector):
             download_kwargs["wait"] = wait
         if timeout is not None:
             download_kwargs["timeout"] = timeout
+        credential = self._handoff()
+        failure = None
         try:
-            result = self._dag.download(target.raw, **download_kwargs)
+            with _usgs_memory_session(credential, self.credentials, LandsatDownloadError):
+                result = self._dag.download(target.raw, **download_kwargs)
         except Exception as exc:
-            raise LandsatDownloadError(
-                f"EODAG download failed for {target.product_id} ({target.title}): {exc}"
-            ) from exc
+            failure = provider_error("usgs", self.credentials, exc, credential, LandsatDownloadError)
+        if failure is not None:
+            raise failure from None
         path = _download_path(result)
         if path is None or not path.exists():
             path = _find_downloaded_archive(output_dir, target.title)
@@ -460,8 +484,8 @@ def _provider_config(
 ) -> dict[str, Any]:
     if provider != PROVIDER:
         return {}
-    resolved_username = (username or os.environ.get(USERNAME_ENV, "")).strip()
-    resolved_password = (password or os.environ.get(PASSWORD_ENV, "")).strip()
+    resolved_username = (username or "").strip()
+    resolved_password = (password or "").strip()
     if not resolved_username or not resolved_password:
         return {}
     return {
@@ -476,6 +500,85 @@ def _provider_config(
             },
         }
     }
+
+
+_GATEWAY_LOCK = RLock()
+
+
+@contextmanager
+def _usgs_memory_session(credential: Credential, source=None, error_type=LandsatProviderError):
+    """Keep the USGS API key per operation, bypassing its .usgs login file."""
+    from usgs import api
+
+    class MemoryAPI:
+        TMPFILE = ""
+
+        def __init__(self):
+            self.key = None
+
+        def login(self, username, token, **_kwargs):
+            result = api.login(username, token, save=False)
+            self.key = result["data"]
+            return result
+
+        def logout(self):
+            self.key = None
+
+        def __getattr__(self, name):
+            method = getattr(api, name)
+            def call(*args, **kwargs):
+                kwargs["api_key"] = self.key
+                return method(*args, **kwargs)
+            return call
+
+    memory = MemoryAPI()
+    create_session = api._create_session
+
+    def session(api_key):
+        result = create_session(api_key)
+        result.trust_env = False
+        return result
+
+    def get(url, **kwargs):
+        with requests.Session() as transport:
+            transport.trust_env = False
+            return transport.get(url, **kwargs)
+
+    failure = None
+    with _GATEWAY_LOCK, \
+            patch.object(_eodag_usgs_api, "api", memory), \
+            patch.object(api, "_get_api_key", lambda value: value), \
+            patch.object(api, "_create_session", session), \
+            patch.object(_eodag_usgs_api, "requests", SimpleNamespace(get=get, exceptions=requests.exceptions)):
+        try:
+            yield
+        except Exception as exc:
+            failure = provider_error("usgs", source, exc, credential, error_type)
+            if memory.key:
+                failure.args = (describe_error(failure, secret=memory.key),)
+        finally:
+            memory.key = None
+    if failure is not None:
+        raise failure from None
+
+
+def _gateway():
+    # EODAG unconditionally loads provider environment overrides at startup.
+    # Disable that hook while it builds the gateway. No secret enters config files.
+    from eodag.api.provider import ProvidersDict
+
+    class ExplicitProviders(ProvidersDict):
+        def update_from_env(self):
+            return None
+
+    with _GATEWAY_LOCK, patch("eodag.api.core.ProvidersDict", ExplicitProviders):
+        try:
+            from eodag.config import EODAGSettings
+        except ImportError:
+            return EODataAccessGateway(user_conf_file_path=_empty_eodag_config())
+        else:
+            return EODataAccessGateway(settings=EODAGSettings(
+                cfg_file=Path(_empty_eodag_config()), providers_whitelist=[PROVIDER]))
 
 
 def _empty_eodag_config() -> str:

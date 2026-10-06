@@ -1,7 +1,7 @@
 """EMIT product discovery and download through NASA's maintained earthaccess.
 
 This is a source-access adapter, not an EMIT science processor. earthaccess
-remains authoritative for CMR queries, Earthdata authentication, and transfer.
+remains authoritative for CMR queries. The shared session handles downloads.
 spectrAccess adds a stable target, explicit failures, checksum verification,
 and canonical metadata provenance. It never loads or reshapes EMIT cubes.
 """
@@ -20,6 +20,7 @@ from urllib.parse import urlparse
 import pandas as pd
 
 from spectraccess.core.connector import Connector
+from spectraccess.core.credentials import CredentialSource, CredentialSession, provider_error
 from spectraccess.core.schema import Uncertainty, UncertaintyStatus, uncertainty_columns, validate
 
 try:
@@ -99,10 +100,14 @@ class EMITTarget:
 class EMITEarthaccessConnector(Connector):
     """Thin public adapter for official EMIT L1B radiance and L2A reflectance.
 
-    Discovery is public. Fetch uses earthaccess's BYO Earthdata credential
-    chain at call time. Connector availability is not claim-grade admission;
+    Discovery is public. Fetch resolves Earthdata credentials at call time. Connector availability is not claim-grade admission;
     cube, GLT, wavelength-grid, mask, and science policy stay downstream.
     """
+
+    credential_provider = "earthdata"
+
+    def __init__(self, *, credentials: CredentialSource | None = None):
+        self.credentials = credentials
 
     def discover(
         self,
@@ -172,12 +177,12 @@ class EMITEarthaccessConnector(Connector):
         *,
         dest: str | Path,
         asset: str = "primary",
-        login_strategy: str = "environment",
+        credentials: CredentialSource | None = None,
         threads: int = 1,
         verify_checksum: bool = True,
         **_kwargs: object,
     ) -> str:
-        """Download exactly one selected NetCDF asset through earthaccess.
+        """Download exactly one selected NetCDF asset through the shared session.
 
         ``asset`` accepts ``primary``, ``uncertainty``, ``mask``,
         ``observation``, or an exact filename. One explicit file prevents
@@ -193,27 +198,24 @@ class EMITEarthaccessConnector(Connector):
             raise ValueError("threads must be >= 1")
         output_dir = Path(dest)
         output_dir.mkdir(parents=True, exist_ok=True)
+        source = credentials if credentials is not None else self.credentials
+        session = CredentialSession("earthdata", source)
+        output_path = output_dir / filename
+        temporary = output_path.with_name(f".{filename}.part")
+        failure = None
         try:
-            earthaccess.login(strategy=login_strategy)
-            outputs = earthaccess.download(
-                [url], local_path=output_dir, threads=threads, show_progress=False
-            )
+            with session.get(url, stream=True, timeout=120) as response:
+                with temporary.open("wb") as stream:
+                    for chunk in response.iter_content(chunk_size=65536):
+                        stream.write(chunk)
+            temporary.replace(output_path)
         except Exception as exc:
-            raise EMITDownloadError(f"Earthdata download failed for {filename}: {exc}") from exc
-        paths = [Path(path) for path in (outputs or [])]
-        if len(paths) != 1:
-            raise EMITDownloadError(
-                f"earthaccess returned {len(paths)} output path(s) for one requested asset {filename!r}"
-            )
-        output_path = paths[0]
-        if not output_path.exists() or not output_path.is_file():
-            raise EMITDownloadError(
-                f"earthaccess reported {output_path}, but the downloaded asset does not exist"
-            )
-        if output_path.name != filename:
-            raise EMITDownloadError(
-                f"earthaccess returned {output_path.name!r}, expected CMR asset {filename!r}"
-            )
+            failure = provider_error("earthdata", source, exc, session.credential, EMITDownloadError)
+        finally:
+            temporary.unlink(missing_ok=True)
+            session.close()
+        if failure is not None:
+            raise failure from None
         if verify_checksum:
             _verify_checksum(output_path, target)
         return str(output_path)

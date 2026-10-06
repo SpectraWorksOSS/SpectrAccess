@@ -4,7 +4,7 @@ import pytest
 
 from spectraccess.core.connector import Connector
 from spectraccess.core.fetch import fetch_url
-from spectraccess.core.session import CredentialConfig, CredentialSession
+from spectraccess.core.credentials import Credential, CredentialSession
 
 
 class DemoConnector(Connector):
@@ -27,22 +27,15 @@ def test_connector_parse_canonical_default_is_loud():
         DemoConnector().parse_canonical(b"raw")
 
 
-def test_credential_session_uses_env_for_basic_auth():
-    session = CredentialSession(
-        env={"USER_ENV": "user", "PASS_ENV": "secret"},
-        config=CredentialConfig(username_env="USER_ENV", password_env="PASS_ENV"),
-    )
+def test_credential_session_uses_explicit_basic_auth():
+    session = CredentialSession("cdse", Credential("password", "secret", "user"))
     assert session.session.auth == ("user", "secret")
+    assert session.session.trust_env is False
 
 
-def test_credential_session_requires_complete_basic_auth():
-    with pytest.raises(ValueError):
-        CredentialSession(username="user")
-
-
-def test_credential_session_sets_api_key_header():
-    session = CredentialSession(api_key="token", api_key_header="X-API-Key")
-    assert session.session.headers["X-API-Key"] == "token"
+def test_credential_session_sets_bearer_header():
+    session = CredentialSession("earthdata", Credential("token", "token-value"))
+    assert session.session.headers["Authorization"] == "Bearer token-value"
 
 
 def test_fetch_url_retries_and_caches(tmp_path, requests_mock):

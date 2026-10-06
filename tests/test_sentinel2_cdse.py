@@ -8,6 +8,8 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
+from spectraccess.core.credentials import Credential
+from types import SimpleNamespace
 
 from spectraccess.connectors.sentinel2_cdse import (
     CDSEDownloadError,
@@ -241,7 +243,8 @@ def test_fetch_delegates_transport_and_verifies_provider_md5(monkeypatch, tmp_pa
         return filename
 
     monkeypatch.setattr(module, "download_feature", fake_download)
-    marker_credentials = object()
+    marker_credentials = Credential("password", "secret", "user")
+    monkeypatch.setattr(module, "_ExplicitCredentials", lambda account, secret: SimpleNamespace(account=account, secret=secret))
     path = Sentinel2CDSEConnector().fetch(
         target,
         dest=tmp_path,
@@ -250,7 +253,8 @@ def test_fetch_delegates_transport_and_verifies_provider_md5(monkeypatch, tmp_pa
 
     assert Path(path).read_bytes() == payload
     assert download_calls[0][0]["Id"] == target.product_id
-    assert download_calls[0][2]["credentials"] is marker_credentials
+    assert download_calls[0][2]["credentials"].account == "user"
+    assert download_calls[0][2]["credentials"].secret == "secret"
     assert "username" not in target.raw
     assert len(calls) == 2
 
@@ -265,8 +269,9 @@ def test_fetch_checksum_mismatch_is_explicit(monkeypatch, tmp_path):
         return filename
 
     monkeypatch.setattr(module, "download_feature", fake_download)
+    monkeypatch.setattr(module, "_ExplicitCredentials", lambda *args: object())
     with pytest.raises(CDSEDownloadError, match="checksum mismatch"):
-        Sentinel2CDSEConnector().fetch(target, dest=tmp_path, credentials=object())
+        Sentinel2CDSEConnector().fetch(target, dest=tmp_path, credentials=Credential("password", "secret", "user"))
 
 
 def test_fetch_requires_complete_nonconflicting_credential_input(monkeypatch):

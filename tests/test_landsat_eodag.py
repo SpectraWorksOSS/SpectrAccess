@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import pandas as pd
 import pytest
+from spectraccess.core.credentials import Credential
 from eodag.api.product import EOProduct
 
 from spectraccess.connectors.landsat_eodag import (
@@ -64,7 +65,7 @@ class Gateway:
 
 def test_discover_preserves_refcal_identity_and_source_cache_contract():
     gateway = Gateway([_product()])
-    target = LandsatEodagConnector(gateway=gateway).discover(
+    target = LandsatEodagConnector(credentials=Credential("password", "m2m-token", "usgs-user"), gateway=gateway).discover(
         bbox=(-123.0, 37.0, -122.0, 38.0),
         start=datetime(2021, 5, 8),
         end=datetime(2021, 5, 8),
@@ -108,7 +109,7 @@ def test_discover_preserves_refcal_identity_and_source_cache_contract():
     ],
 )
 def test_collection_two_tier_semantics_are_explicit(title, tier, product_type, sensor):
-    target = LandsatEodagConnector(gateway=Gateway([_product(title=title)])).discover(
+    target = LandsatEodagConnector(credentials=Credential("password", "m2m-token", "usgs-user"), gateway=Gateway([_product(title=title)])).discover(
         bbox=(-1, -1, 1, 1)
     )[0]
     assert (target.tier, target.product_type, target.sensor_id) == (tier, product_type, sensor)
@@ -116,7 +117,7 @@ def test_collection_two_tier_semantics_are_explicit(title, tier, product_type, s
 
 def test_discover_title_strips_archive_suffix_and_requests_exact_display_id():
     gateway = Gateway([_product()])
-    targets = LandsatEodagConnector(gateway=gateway).discover_title(f"{L8_TITLE}.tar.gz", limit=3)
+    targets = LandsatEodagConnector(credentials=Credential("password", "m2m-token", "usgs-user"), gateway=gateway).discover_title(f"{L8_TITLE}.tar.gz", limit=3)
     assert targets[0].title == L8_TITLE
     assert gateway.search_calls == [
         {
@@ -154,7 +155,7 @@ def test_constructor_passes_byo_credentials_only_to_eodag_config():
 
 def test_fetch_delegates_wait_timeout_and_finds_only_matching_archive(tmp_path):
     gateway = Gateway([_product()])
-    connector = LandsatEodagConnector(gateway=gateway)
+    connector = LandsatEodagConnector(credentials=Credential("password", "m2m-token", "usgs-user"), gateway=gateway)
     target = connector.discover(bbox=(-1, -1, 1, 1))[0]
     (tmp_path / "unrelated.tar.gz").write_bytes(b"wrong")
     expected = tmp_path / f"{L8_TITLE}.tar.gz"
@@ -172,7 +173,7 @@ def test_fetch_delegates_wait_timeout_and_finds_only_matching_archive(tmp_path):
 
 
 def test_fetch_fails_when_eodag_reports_no_matching_archive(tmp_path):
-    connector = LandsatEodagConnector(gateway=Gateway([_product()]))
+    connector = LandsatEodagConnector(credentials=Credential("password", "m2m-token", "usgs-user"), gateway=Gateway([_product()]))
     target = connector.discover(bbox=(-1, -1, 1, 1))[0]
     (tmp_path / "unrelated.tar").write_bytes(b"wrong")
     with pytest.raises(LandsatDownloadError, match="no matching archive"):
@@ -180,7 +181,7 @@ def test_fetch_fails_when_eodag_reports_no_matching_archive(tmp_path):
 
 
 def test_native_and_canonical_metadata_are_lossless_and_honest():
-    connector = LandsatEodagConnector(gateway=Gateway([_product()]))
+    connector = LandsatEodagConnector(credentials=Credential("password", "m2m-token", "usgs-user"), gateway=Gateway([_product()]))
     target = connector.discover(bbox=(-1, -1, 1, 1))[0]
     native = connector.parse("/cloud/source-cache/archive.tar.gz", target=target)
     assert native.loc[0, "product_type"] == "LANDSAT_C2_L1TP_T1"
@@ -207,7 +208,7 @@ def test_native_and_canonical_metadata_are_lossless_and_honest():
     ],
 )
 def test_area_search_skips_non_contract_neighbours(title, caplog):
-    connector = LandsatEodagConnector(gateway=Gateway([_product(title=title), _product()]))
+    connector = LandsatEodagConnector(credentials=Credential("password", "m2m-token", "usgs-user"), gateway=Gateway([_product(title=title), _product()]))
     with caplog.at_level("INFO", logger="spectraccess.connectors.landsat_eodag.connector"):
         targets = connector.discover(bbox=(-1, -1, 1, 1))
     assert [target.title for target in targets] == [L8_TITLE]
@@ -222,7 +223,7 @@ def test_area_search_skips_non_contract_neighbours(title, caplog):
     ],
 )
 def test_exact_title_search_rejects_non_contract_titles(title):
-    connector = LandsatEodagConnector(gateway=Gateway([_product(title=title)]))
+    connector = LandsatEodagConnector(credentials=Credential("password", "m2m-token", "usgs-user"), gateway=Gateway([_product(title=title)]))
     with pytest.raises(LandsatProductError):
         connector.discover_title(title)
 
@@ -230,6 +231,7 @@ def test_exact_title_search_rejects_non_contract_titles(title):
 def test_exact_title_search_rejects_non_contract_results():
     # The requested title is valid; the provider answers with a neighbour.
     connector = LandsatEodagConnector(
+        credentials=Credential("password", "m2m-token", "usgs-user"),
         gateway=Gateway([_product(title="LC08_L1GT_044034_20210508_20210518_02_T1")])
     )
     with pytest.raises(LandsatProductError):
@@ -237,18 +239,18 @@ def test_exact_title_search_rejects_non_contract_results():
 
 
 def test_area_search_product_without_title_fails_loudly():
-    connector = LandsatEodagConnector(gateway=Gateway([SimpleNamespace(properties={}), _product()]))
+    connector = LandsatEodagConnector(credentials=Credential("password", "m2m-token", "usgs-user"), gateway=Gateway([SimpleNamespace(properties={}), _product()]))
     with pytest.raises(LandsatProductError):
         connector.discover(bbox=(-1, -1, 1, 1))
 
 
 def test_malformed_metadata_on_contract_product_still_fails_loudly():
-    connector = LandsatEodagConnector(gateway=Gateway([_product(cloud_cover=140)]))
+    connector = LandsatEodagConnector(credentials=Credential("password", "m2m-token", "usgs-user"), gateway=Gateway([_product(cloud_cover=140)]))
     with pytest.raises(LandsatProductError):
         connector.discover(bbox=(-1, -1, 1, 1))
 
 
 def test_unknown_cloud_cover_is_not_fabricated_or_admitted_by_max_filter():
-    connector = LandsatEodagConnector(gateway=Gateway([_product(cloud_cover=None)]))
+    connector = LandsatEodagConnector(credentials=Credential("password", "m2m-token", "usgs-user"), gateway=Gateway([_product(cloud_cover=None)]))
     assert connector.discover(bbox=(-1, -1, 1, 1))[0].cloud_cover is None
     assert connector.discover(bbox=(-1, -1, 1, 1), max_cloud_cover=100) == []

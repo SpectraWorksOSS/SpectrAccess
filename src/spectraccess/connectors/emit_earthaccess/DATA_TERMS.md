@@ -6,8 +6,8 @@ available; users remain responsible for acknowledging the EMIT mission and the
 LP DAAC and for following the citation guidance attached to the selected product.
 
 The connector ships no EMIT science data. Public CMR discovery is anonymous.
-Protected asset downloads use the caller's own free NASA Earthdata Login through
-the maintained `earthaccess` credential chain.
+Protected asset downloads need a free NASA Earthdata Login account;
+see [credentials](../../../../docs/credentials.md).
 
 Authoritative references:
 
