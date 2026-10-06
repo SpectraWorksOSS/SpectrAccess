@@ -48,6 +48,40 @@ def _science(array: xr.DataArray, *, default_fill: float | None = None) -> xr.Da
     return xr.decode_cf(array.to_dataset(), decode_times=False)[array.name]
 
 
+def _v001_mask_aliases(mask: xr.DataArray, labels: xr.Dataset) -> dict[str, xr.DataArray]:
+    if "mask_bands" in labels:
+        published = labels["mask_bands"]
+        if published.ndim != 1 or published.size != mask.sizes["mask_bands"]:
+            raise ValueError("V001 mask_bands labels do not match mask channels")
+        names = [
+            (value.decode("utf-8") if isinstance(value, bytes) else str(value))
+            .split("(", 1)[0].strip().casefold()
+            for value in published.values
+        ]
+        indices = []
+        for name in ("aod550", "h2o"):
+            matches = [index for index, label in enumerate(names) if label == name]
+            if len(matches) != 1:
+                raise ValueError(
+                    "V001 mask_bands labels must identify exactly one AOD550 "
+                    "and one H2O channel"
+                )
+            indices.append(matches[0])
+        basis = "provider mask_bands label"
+    else:
+        # EMIT L2A ATBD section 5 lists channels one-based: 6 AOD, 7 H2O.
+        if mask.sizes["mask_bands"] < 7:
+            raise ValueError("V001 mask lacks ATBD AOD550 and H2O channels")
+        indices = [5, 6]
+        basis = "ATBD channel order"
+    aliases = {}
+    for name, index in zip(("aerosol_optical_depth", "water_vapor"), indices):
+        alias = mask.isel(mask_bands=index, drop=True).copy(deep=False)
+        alias.attrs["alias_source"] = basis
+        aliases[name] = alias
+    return aliases
+
+
 def read_cube(
     reflectance: str | Path,
     *,
@@ -125,14 +159,21 @@ def read_cube(
                 result[variable].attrs.setdefault("long_name", "Reflectance uncertainty (one standard deviation)")
                 result["reflectance"].attrs["ancillary_variables"] = variable
             else:
-                labels = _open(stack, path, "sensor_band_parameters")
+                # A mask without published labels can use the ATBD order,
+                # including files with no sensor_band_parameters group.
+                if variable == "mask":
+                    import h5netcdf
+
+                    with h5netcdf.File(path) as file:
+                        has_labels_group = "sensor_band_parameters" in file.groups
+                    labels = _open(stack, path, "sensor_band_parameters") if has_labels_group else xr.Dataset()
+                else:
+                    labels = _open(stack, path, "sensor_band_parameters")
                 for name, param in labels.data_vars.items():
                     if param.ndim == 1 and param.size == array.shape[2]:
                         result[f"{variable}_{name}"] = param.rename({param.dims[0]: band_dim})
-                if variable == "mask" and version == "001" and array.shape[2] >= 8:
-                    # V001 provider MASK layout, zero-based bands 6 and 7.
-                    result["aerosol_optical_depth"] = result["mask"].isel(mask_bands=6, drop=True)
-                    result["water_vapor"] = result["mask"].isel(mask_bands=7, drop=True)
+                if variable == "mask" and version == "001":
+                    result.update(_v001_mask_aliases(result["mask"], labels))
                 # V002 standalone MASK may publish additional value arrays.
                 for name, value in companion.data_vars.items():
                     if name == variable:
