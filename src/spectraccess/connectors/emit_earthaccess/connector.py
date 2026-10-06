@@ -3,7 +3,7 @@
 This is a source-access adapter, not an EMIT science processor. earthaccess
 remains authoritative for CMR queries. The shared session handles downloads.
 spectrAccess adds a stable target, explicit failures, checksum verification,
-and canonical metadata provenance. It never loads or reshapes EMIT cubes.
+and canonical metadata provenance, with a local raw-geometry cube reader.
 """
 
 from __future__ import annotations
@@ -18,6 +18,8 @@ from typing import Any, Mapping, Sequence
 from urllib.parse import urlparse
 
 import pandas as pd
+
+from .cube import read_cube, read_product_metadata
 
 from spectraccess.core.connector import Connector
 from spectraccess.core.credentials import CredentialSource, CredentialSession, provider_error
@@ -100,8 +102,9 @@ class EMITTarget:
 class EMITEarthaccessConnector(Connector):
     """Thin public adapter for official EMIT L1B radiance and L2A reflectance.
 
-    Discovery is public. Fetch resolves Earthdata credentials at call time. Connector availability is not claim-grade admission;
-    cube, GLT, wavelength-grid, mask, and science policy stay downstream.
+    Discovery is public. Fetch resolves Earthdata credentials at call time.
+    Connector availability is not claim-grade admission; science policy stays
+    downstream; read_cube exposes provider arrays.
     """
 
     credential_provider = "earthdata"
@@ -227,6 +230,7 @@ class EMITEarthaccessConnector(Connector):
                 "EMIT metadata parsing requires the discovered target so provenance is not guessed; "
                 "call parse(path, target=target) or Connector.run()"
             )
+        self._check_local_metadata(raw, target)
         return target_to_frame(target, local_path=_local_path(raw))
 
     def parse_canonical(
@@ -242,7 +246,16 @@ class EMITEarthaccessConnector(Connector):
                 "canonical EMIT metadata requires the discovered target; "
                 "call parse_canonical(path, target=target) or Connector.run(canonical=True)"
             )
+        self._check_local_metadata(raw, target)
         return target_to_canonical(target, local_path=_local_path(raw), retrieved_at=retrieved_at)
+
+    read_cube = staticmethod(read_cube)
+
+    @staticmethod
+    def _check_local_metadata(raw: bytes | str, target: EMITTarget) -> None:
+        path = _local_path(raw)
+        if path is not None and Path(path).is_file():
+            read_product_metadata(path, target=target)
 
     def _parse_kwargs_for(self, target: object) -> dict[str, object]:
         return {"target": target} if isinstance(target, EMITTarget) else {}

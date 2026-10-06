@@ -72,6 +72,7 @@ emit = [
   # the dependency active makes pip reject spectraccess[emit] on 3.10/3.11
   # instead of silently installing an unusable extra without its client.
   "earthaccess==0.18.0",
+  "h5netcdf>=1.3",
 ]
 landsat = [
   "eodag[usgs]>=4.3,<5",

@@ -1,6 +1,6 @@
 # spectrAccess
 
-spectrAccess is a Python client that finds and downloads spectral and atmospheric reference data from RadCalNet, GSICS, AERONET, CAMS, Landsat, Sentinel-2 and NASA EMIT, and parses each into a pandas DataFrame. GSICS, RadCalNet and AERONET measurements can also be returned in one shared schema where every value carries an uncertainty record and its source, URL and retrieval time (see Canonical schema below). Sentinel-2, EMIT and Landsat return scene metadata and leave pixels to your tools. CAMS returns a table of the downloaded files.
+spectrAccess is a Python client that finds and downloads spectral and atmospheric reference data from RadCalNet, GSICS, AERONET, CAMS, Landsat, Sentinel-2 and NASA EMIT, and parses metadata into pandas DataFrames. GSICS, RadCalNet and AERONET measurements can also be returned in one shared schema where every value carries an uncertainty record and its source, URL and retrieval time (see Canonical schema below). Sentinel-2 and Landsat return scene metadata. EMIT also reads local reflectance cubes into xarray Datasets. CAMS returns a table of the downloaded files.
 
 It is written for remote sensing and Earth observation scientists, calibration engineers and satellite data providers who spend too much time on portal logins, file formats and unit conventions instead of the comparison itself.
 
@@ -151,13 +151,63 @@ Constructor arguments override environment variables: `CAMS_SOURCE`,
 `SPECTRACCESS_CAMS_CACHE_DIR` (default `~/.cache/spectraccess/cams`), and
 `SPECTRACCESS_CAMS_FALLBACK_URL` (a second mirror with the JASMIN layout).
 
-The EMIT connector likewise keeps the multi-gigabyte science cubes opaque. Its
-canonical output covers only source-provided scene metadata (cloud cover and
+The EMIT connector's canonical output covers source-provided scene metadata (cloud cover and
 solar angles), each labelled `unc_status="unknown"` because CMR does not publish
 an uncertainty for those metadata values. Exact collection/native IDs, footprint,
 orbit/scene, asset URLs, byte sizes, and SHA-512 checksums remain in the target
-provenance. Cube/GLT interpretation and scientific admission are deliberately
-downstream concerns; connector availability is not a claim-grade endorsement.
+provenance. Scientific use remains a downstream decision.
+
+For local EMIT L2A files, `read_cube(reflectance, *, uncertainty=None, mask=None,
+observation=None, target=None)` returns a lazy `xarray.Dataset`. It is also
+available as `EMITEarthaccessConnector.read_cube`. Install `spectraccess[emit]`
+for the h5netcdf backend. Close the dataset after use, or use a context manager:
+
+```python
+from spectraccess.connectors.emit_earthaccess import read_cube
+
+# Paths to files already downloaded from NASA LP DAAC.
+with read_cube("RFL.nc", uncertainty="RFL_UNCERT.nc",
+               mask="MASK.nc", observation="OBS.nc") as cube:
+    spectrum = cube.reflectance.isel(downtrack=0, crosstrack=0).values
+    print(cube.wavelengths.values, spectrum)
+```
+
+`reflectance` and `reflectance_uncertainty` share raw `(downtrack, crosstrack,
+bands)` indices. Reflectance and its uncertainty use the provider's units
+(dimensionless reflectance); `wavelengths` and `fwhm` carry the granule's units
+(nm). `good_wavelengths` is a flag array. Its zero channels retain the published
+`-0.01` placeholder. Only fill values become NaN, with `-9999` as the
+reflectance and uncertainty fill. Bands are neither removed nor resampled.
+
+The `location` group's raw `lat` and `lon` are coordinates, with provider units
+of degrees. GLT arrays retain their published integer values, dimensions and
+fill (`-9999` in V001, `0` in V002). No index base is inferred and no
+orthorectification is performed. Global file metadata, including
+`product_version`, binds the band parameters to this granule.
+
+`mask` has `(downtrack, crosstrack, mask_bands)` dimensions. For V001,
+zero-based bands 6 and 7 are also exposed as `aerosol_optical_depth` and
+`water_vapor`. V002 accepts the separate EMITL2AMASK product and preserves its
+published value arrays. Band labels are preserved as `mask_<provider_name>`.
+`obs` has `(downtrack, crosstrack, observation_bands)` dimensions, with geometry
+band labels in `obs_<provider_name>` (including solar/view zenith and azimuth).
+Units and labels come from the files; no angles are derived.
+
+The uncertainty attributes quote NASA's L2A ATBD: "Reflectance uncertainty
+(one standard deviation)" and "predicted uncertainty in the reflectance
+measurement for each channel, in units of standard deviations (presuming a
+Gaussian distribution)." No further uncertainty interpretation is added.
+The latter quote is in `provider_definition`; existing provider descriptions
+and long names are preserved.
+Omitted optional files produce no corresponding variables; an explicitly
+supplied missing file raises an error. Companion versions and raw dimensions
+must match. Provider scene identifiers are checked when present.
+
+`parse` and `parse_canonical` still return metadata DataFrames. When given an
+existing local file, they share `read_product_metadata` with the cube reader
+and check its version against the CMR target. Passing `target` to `read_cube`
+performs the same check. Discovery continues to support its existing V001
+collections; the local reader supports V001 and V002.
 
 The Landsat connector applies the same boundary to Collection-2 L1TP products:
 EODAG owns USGS search, authentication, retries, and download transport;
