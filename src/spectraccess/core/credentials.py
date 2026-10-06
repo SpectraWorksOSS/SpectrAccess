@@ -180,11 +180,15 @@ class _Session(requests.Session):
     def rebuild_auth(self, prepared_request, response):
         old = urlparse(response.request.url)
         new = urlparse(prepared_request.url)
-        if old.scheme == new.scheme == "https" and old.hostname == new.hostname:
+        def origin(url):
+            port = url.port if url.port is not None else {"https": 443, "http": 80}.get(url.scheme)
+            return url.scheme, url.hostname, port
+        if old.scheme == new.scheme == "https" and origin(old) == origin(new):
             return
         prepared_request.headers.pop("Authorization", None)
         if (self.earthdata and new.scheme == "https" and
-                new.hostname == "urs.earthdata.nasa.gov" and self.auth):
+                new.hostname == "urs.earthdata.nasa.gov" and
+                new.port in (None, 443) and self.auth):
             prepared_request.prepare_auth(self.auth)
 
 

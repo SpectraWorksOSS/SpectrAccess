@@ -130,7 +130,7 @@ def test_discover_title_strips_archive_suffix_and_requests_exact_display_id():
     ]
 
 
-def test_constructor_passes_byo_credentials_only_to_eodag_config():
+def test_explicit_credentials_are_handed_over_only_during_search():
     gateway = Gateway()
     connector = LandsatEodagConnector(
         gateway=gateway,
@@ -138,18 +138,17 @@ def test_constructor_passes_byo_credentials_only_to_eodag_config():
         password="m2m-token",
     )
     assert connector.provider == "usgs"
+    assert gateway.config_updates == []
+    assert gateway.preferred == []
+    received = []
+    def search(**_kwargs):
+        received.append(dict(gateway.config_updates[-1]["usgs"]["api"]["credentials"]))
+        return []
+    gateway.search = search
+    connector.discover(bbox=(-1, -1, 1, 1))
     assert gateway.preferred == ["usgs"]
-    assert gateway.config_updates == [
-        {
-            "usgs": {
-                "products": {"LANDSAT_C2L1": {"_collection": "landsat_ot_c2_l1"}},
-                "api": {
-                    "type": "UsgsApi",
-                    "credentials": {"username": "usgs-user", "password": "m2m-token"},
-                },
-            }
-        }
-    ]
+    assert received == [{"username": "usgs-user", "password": "m2m-token"}]
+    assert gateway.config_updates[-1]["usgs"]["api"]["credentials"] == {}
     assert "usgs-user" not in repr(connector)
 
 

@@ -152,21 +152,54 @@ class LandsatEodagConnector(Connector):
         self.provider = provider
         self.collection = collection
         self._dag = gateway or _gateway()
-        if self.credentials is not None:
-            self._handoff()
-        self._dag.set_preferred_provider(provider)
 
-    def _handoff(self):
-        credential = resolve("usgs", self.credentials)
-        failure = None
-        try:
-            self._dag.update_providers_config(dict_conf=_provider_config(
-                self.provider, collection=self.collection, username=credential.account, password=credential.secret))
-        except Exception as exc:
-            failure = provider_error("usgs", self.credentials, exc, credential, LandsatProviderError)
-        if failure is not None:
-            raise failure from None
-        return credential
+    def _handoff(self, config):
+        self._dag.update_providers_config(dict_conf=config)
+        self._dag.set_preferred_provider(self.provider)
+
+    def _clear_client_credentials(self, handoff, products=()):
+        """Release provider, plugin-cache and product-downloader config copies."""
+        seen = set()
+
+        def clear_config(config):
+            if config is None or id(config) in seen:
+                return
+            seen.add(id(config))
+            values = config if isinstance(config, dict) else vars(config) if hasattr(config, "__dict__") else {}
+            for name, value in values.items():
+                if name == "credentials" and isinstance(value, dict):
+                    value.clear()
+                elif name in (self.provider, "api", "auth", "search_auth", "search", "download", "config"):
+                    clear_config(value)
+
+        clear_config(handoff)
+        manager = getattr(self._dag, "_plugins_manager", None)
+        retained = getattr(self._dag, "_providers", None)
+        if retained is None:
+            retained = getattr(self._dag, "providers", None)
+        for providers in (retained,
+                          getattr(manager, "providers", None)):
+            if providers is not None:
+                provider = providers.get(self.provider)
+                clear_config(getattr(provider, "config", provider))
+                pruned = getattr(providers, "pruned_providers_config", {})
+                clear_config(pruned.get(self.provider))
+        clear_config(getattr(self._dag, "_pruned_providers_config", {}).get(self.provider))
+        for configs in getattr(manager, "collection_to_provider_config_map", {}).values():
+            for config in configs:
+                if getattr(config, "name", None) == self.provider:
+                    clear_config(config)
+        cache = getattr(manager, "_built_plugins_cache", {})
+        for key, plugin in list(cache.items()):
+            if key[0] == self.provider:
+                clear_config(getattr(plugin, "config", None))
+                del cache[key]
+        for product in products:
+            for name in ("downloader", "downloader_auth"):
+                plugin = getattr(product, name, None)
+                clear_config(getattr(plugin, "config", None))
+                if plugin is not None:
+                    setattr(product, name, None)
 
     def discover(
         self,
@@ -248,13 +281,19 @@ class LandsatEodagConnector(Connector):
     def _search(
         self, search_kwargs: Mapping[str, Any], *, skip_non_contract: bool = True
     ) -> list[LandsatTarget]:
-        credential = self._handoff()
+        credential = resolve("usgs", self.credentials)
+        handoff = _provider_config(self.provider, collection=self.collection,
+                                   username=credential.account, password=credential.secret)
+        products = []
         failure = None
         try:
+            self._handoff(handoff)
             with _usgs_memory_session(credential, self.credentials, LandsatProviderError):
-                products = self._dag.search(**dict(search_kwargs))
+                products = list(self._dag.search(**dict(search_kwargs)))
         except Exception as exc:
             failure = provider_error("usgs", self.credentials, exc, credential, LandsatProviderError)
+        finally:
+            self._clear_client_credentials(handoff, products)
         if failure is not None:
             raise failure from None
         retrieved_at = datetime.now(timezone.utc)
@@ -290,13 +329,18 @@ class LandsatEodagConnector(Connector):
             download_kwargs["wait"] = wait
         if timeout is not None:
             download_kwargs["timeout"] = timeout
-        credential = self._handoff()
+        credential = resolve("usgs", self.credentials)
+        handoff = _provider_config(self.provider, collection=self.collection,
+                                   username=credential.account, password=credential.secret)
         failure = None
         try:
+            self._handoff(handoff)
             with _usgs_memory_session(credential, self.credentials, LandsatDownloadError):
                 result = self._dag.download(target.raw, **download_kwargs)
         except Exception as exc:
             failure = provider_error("usgs", self.credentials, exc, credential, LandsatDownloadError)
+        finally:
+            self._clear_client_credentials(handoff, (target.raw,))
         if failure is not None:
             raise failure from None
         path = _download_path(result)
@@ -509,6 +553,7 @@ _GATEWAY_LOCK = RLock()
 def _usgs_memory_session(credential: Credential, source=None, error_type=LandsatProviderError):
     """Keep the USGS API key per operation, bypassing its .usgs login file."""
     from usgs import api
+    scrub_material = {credential.secret}
 
     class MemoryAPI:
         TMPFILE = ""
@@ -519,6 +564,7 @@ def _usgs_memory_session(credential: Credential, source=None, error_type=Landsat
         def login(self, username, token, **_kwargs):
             result = api.login(username, token, save=False)
             self.key = result["data"]
+            scrub_material.add(self.key)
             return result
 
         def logout(self):
@@ -554,10 +600,12 @@ def _usgs_memory_session(credential: Credential, source=None, error_type=Landsat
             yield
         except Exception as exc:
             failure = provider_error("usgs", source, exc, credential, error_type)
-            if memory.key:
-                failure.args = (describe_error(failure, secret=memory.key),)
+            for secret in sorted(scrub_material, key=len, reverse=True):
+                if secret:
+                    failure.args = (describe_error(failure, secret=secret),)
         finally:
             memory.key = None
+            scrub_material.clear()
     if failure is not None:
         raise failure from None
 

@@ -198,7 +198,8 @@ def test_landsat_ignores_client_environment_and_login_config(tmp_path, monkeypat
 def test_landsat_resolves_source_each_operation(monkeypatch):
     from spectraccess.connectors.landsat_eodag import LandsatEodagConnector
     updates = []
-    gateway = SimpleNamespace(update_providers_config=lambda **kwargs: updates.append(kwargs),
+    gateway = SimpleNamespace(update_providers_config=lambda **kwargs: updates.append(
+                                  kwargs["dict_conf"]["usgs"]["api"]["credentials"]["password"]),
                               set_preferred_provider=lambda *args: None,
                               search=lambda **kwargs: [])
     state = {"secret": "first"}
@@ -207,7 +208,7 @@ def test_landsat_resolves_source_each_operation(monkeypatch):
     connector.discover(bbox=(-1, -1, 1, 1))
     state["secret"] = "replacement"
     connector.discover(bbox=(-1, -1, 1, 1))
-    assert updates[-1]["dict_conf"]["usgs"]["api"]["credentials"]["password"] == "replacement"
+    assert updates == ["first", "replacement"]
 
 
 def test_radcalnet_keyring_replacement_applies_next_call(backend, requests_mock, monkeypatch):
