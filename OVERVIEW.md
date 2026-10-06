@@ -168,9 +168,9 @@ Call `spectraccess.core.schema.validate(df)` to check a frame against the schema
 allowed and pass through validation untouched.
 
 Canonical v1 also registers optional observation-contract fields in
-`OBSERVATION_COLUMNS`: split uncertainty and correlation metadata, signed bias,
-likelihood, valid time and integration window, footprint/support/elevation,
-lineage, published prior/averaging kernel, QA and product versions. Existing
+`OBSERVATION_COLUMNS`: provider uncertainty definitions, valid time and
+integration window, footprint/support/elevation, published inputs and
+prior/averaging kernel, QA, assumptions and product versions. Existing
 outputs and uncertainty-status semantics stay unchanged. Missing optional fields
 mean unknown. The new OLCI, NGL and CAMS pressure paths emit canonical rows;
 their usage, field contract and release notes are in

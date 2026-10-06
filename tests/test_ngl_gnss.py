@@ -28,7 +28,6 @@ def test_real_sinex_extract_values_errors_location_and_gradient_warning():
     assert east.unc_value == pytest.approx(.00058)
     assert north.qa["gradient_columns_interchanged"] is True
     assert "GipsyX-2.3" in ztd.algorithm_version
-    assert "u_independent" not in frame
     assert "averaging_kernel" not in frame
     assert "integration_start" not in frame
     assert not frame.quantity.str.contains("water").any()
@@ -48,7 +47,6 @@ def test_ztd_only_and_unknown_sigma():
     frame = parse_sinex(head+"+TROP/SOLUTION\n*SITE ___EPOCH____ TROTOT _SIG\n ABMF 08:246:00000 2662.8 -999.0\n-TROP/SOLUTION\n")
     assert frame.quantity.tolist() == ["zenith_total_delay"]
     assert frame.unc_status.tolist() == ["unknown"]
-    assert "uncertainty_k" not in frame
 
 
 def test_single_published_gradient_keeps_corrected_direction():

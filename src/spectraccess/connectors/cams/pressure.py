@@ -4,10 +4,9 @@ Primary variable availability and product description:
 https://ads.atmosphere.copernicus.eu/api/catalogue/v1/collections/cams-global-reanalysis-eac4/constraints.json
 https://ads.atmosphere.copernicus.eu/datasets/cams-global-reanalysis-eac4
 
-EAC4 publishes surface_pressure (Pa), so ERA5/CDS is not needed in Phase A.
+EAC4 publishes surface_pressure (Pa) through ADS.
 The product supplies no per-cell pressure uncertainty or observation averaging
-kernel. Numerical weather model priors and assimilation are not independent
-GNSS observations. Preserve the model-group declaration for downstream fusion.
+kernel. Published coordinates and file metadata accompany each pressure row.
 """
 
 from __future__ import annotations
@@ -112,7 +111,7 @@ def parse_surface_pressure(raw: CAMSSurfacePressureResult | str | Path, *,
                        unc_value=None, unc_status="unknown", source="cams-eac4-surface-pressure",
                        source_agency="ECMWF / Copernicus Atmosphere Monitoring Service",
                        source_url=source_url, retrieved_at=retrieved_at,
-                       correlation_groups=["G-MOD"], collection_version="EAC4",
+                       collection_version="EAC4",
                        qa={"finite_positive_pressure": True, "cell_center_only": True})
             if ds.attrs.get("algorithm_version"):
                 row["algorithm_version"] = str(ds.attrs["algorithm_version"])

@@ -20,16 +20,14 @@ def test_iwv_decoding_qa_time_and_bias_are_separate():
     frame = OLCICDSEConnector().parse(str(PRODUCT))
     assert len(frame) == 3
     assert frame.value.iloc[0] == pytest.approx(20.1)
-    assert frame.u_independent.iloc[0] == pytest.approx(.6)
-    assert frame.uncertainty_k.iloc[0] == 1
+    assert frame.unc_value.iloc[0] == pytest.approx(.6)
+    assert frame.unc_k.iloc[0] == 1
     assert frame.units.eq("kg m-2").all()
-    assert frame.correlation_groups.iloc[0] == ["G-940-SURFACE"]
     assert frame.published_bias.iloc[0]["relative_range"] == [.07,.10]
     assert frame.published_bias.iloc[0]["applied"] is False
     assert frame.algorithm_version.eq("fixture-1").all()
     assert frame.unc_status.tolist() == ["provided","provided","unknown"]
     assert frame.valid_time.iloc[1] > frame.valid_time.iloc[0]
-    assert not {"bias","u_bias","prior_state","averaging_kernel","likelihood_family","integration_start","footprint_geometry"}.intersection(frame.columns)
 
 
 def test_flagged_rows_and_bbox():

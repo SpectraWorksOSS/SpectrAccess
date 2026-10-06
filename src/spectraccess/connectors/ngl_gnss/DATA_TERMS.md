@@ -27,10 +27,10 @@ are read from the file, not assumed to be a fixed GipsyX release.
 
 Rows contain `zenith_total_delay` and available `tropospheric_gradient_north`
 and `tropospheric_gradient_east`, in metres. No conversion to water vapour is
-performed. Formal standard errors are `provided` with k=1; they omit
-representativeness and common orbit/model errors. No independent/structured/
-common split, correlation length, likelihood or integration duration is
-invented. The five-minute interval is sampling cadence, retained in QA.
+performed. The README calls the reported sigmas "formal error columns (_SIG)";
+`unc_definition` closely paraphrases this as "Formal error columns (_SIG) for
+the tropospheric estimates". These errors are `provided` with k=1. The
+five-minute interval is sampling cadence, retained in QA.
 
 The README warns that TGETOT/TGNTOT columns and their formal errors are
 interchanged. The parser corrects both directions by default, retains all
@@ -41,7 +41,6 @@ missing/negative formal errors produce `unc_status='unknown'`.
 
 No water-vapour prior or observation averaging kernel is published for these
 ZTD estimates. These metadata remain absent. VMF1/NWM inputs described in the
-file remain visible in the reported processing provenance; they are not a
-published observation prior that can be divided out.
+file remain visible in the reported processing provenance.
 
 Usage and connector release notes: [atmospheric connectors](../../../../docs/atmospheric-connectors.md).

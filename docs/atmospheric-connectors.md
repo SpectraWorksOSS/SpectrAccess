@@ -36,9 +36,8 @@ raw = cams.fetch_surface_pressure(
 pressure = cams.parse_surface_pressure(raw)
 ```
 
-NGL delivers ZTD in metres, not water vapour. A downstream operator must keep
-surface pressure, weighted mean atmospheric temperature and height handling
-visible when converting delays. OLCI IWV is kg m-2; CAMS pressure is Pa.
+NGL delivers ZTD and tropospheric gradients in metres. OLCI IWV is kg m-2;
+CAMS pressure is Pa.
 The pressure request uses an exact EAC4 epoch; choose the epoch deliberately
 instead of silently rounding an acquisition time.
 
@@ -47,47 +46,37 @@ instead of silently rounding an acquisition time.
 `SCHEMA_VERSION` stays `1.0`. `CANONICAL_COLUMNS` and `empty_frame()` retain
 the original required-column shape. `OBSERVATION_COLUMNS` registers the
 optional fields below; `validate()` checks them when present. An absent or
-null optional value means unknown, including likelihood, coverage factor,
-zero bias, correlation and prior metadata. An empty published list means a
+null optional value means unknown. An empty published list means a
 known empty list; it is not substituted for an unknown one.
 
 | Fields | Contract |
 | --- | --- |
-| `u_independent`, `u_structured`, `u_common` | Non-negative standard uncertainties in the observation's units or declared likelihood-transform space |
-| `uncertainty_k` | Exactly 1 when declared; original `unc_k` retains existing semantics |
-| `correlation_lengths` | Mapping of positive lengths: `spatial_m`, `temporal_s`, `vertical_m`; only known axes supplied |
-| `common_group_id` | Shared-effect identifier, required when `u_common` is given |
-| `bias`, `u_bias` | Signed observation-minus-truth bias and non-negative standard uncertainty, separate from the value and random error |
-| `likelihood_family` | `gaussian`, `gaussian-in-transform`, `student_t`, `censored`, `categorical` |
-| `likelihood_transform`, `likelihood_parameters` | Declared transform expression/name and mapping of its parameters, degrees of freedom, censor bounds or category probabilities; transform required for gaussian-in-transform |
 | `valid_time`, `integration_start`, `integration_end` | UTC observation time and published integration-window endpoints; cadence and scene duration do not establish an integration window |
 | `footprint_geometry`, `support_kind`, `elevation_m` | GeoJSON geometry in longitude/latitude degrees, support `point`, `pixel`, `grid cell` or `swath`, and source support elevation in metres with its datum retained in QA |
-| `correlation_groups`, `assimilated_inputs` | Lists of declared group and input identifiers, without guessed independence or complete assimilation inventories |
+| `assimilated_inputs` | Input identifiers listed by the provider |
 | `retrieval_prior` | Published prior description/source metadata mapping |
 | `prior_state`, `prior_covariance`, `averaging_kernel` | Published numerical arrays in the source state basis; labels, units, dimensions and reference belong in `retrieval_prior`; absent when unpublished |
-| `sigma_basis`, `assumptions` | Uncertainty basis text and list of spectrAccess `AssumptionRecord` objects; no import of a downstream assumption type |
+| `unc_definition`, `assumptions` | Provider-stated uncertainty meaning and list of spectrAccess `AssumptionRecord` objects |
 | `qa`, `algorithm_version`, `collection_version` | Source quality mapping, processor version and collection identity |
 
 The new fields do not alter `Uncertainty` status rules. A source-supplied
-formal error remains `provided`; a missing error remains `unknown`. A
-formal error is not automatically an independent-error component. These
-connectors do not invent a likelihood or missing common/structured magnitudes.
+formal error remains `provided`; a missing error remains `unknown`.
 Numerical prior metadata is carried only when published, with no attempt to
 construct an averaging kernel from an algorithm description.
 
 OLCI retains pixel centres in `pixel_center_geometry` and the catalogue's
 swath in `product_footprint`; neither is substituted for unknown pixel
 boundaries. The published positive 7 to 10 percent wet-bias finding is a
-connector-specific `published_bias` attribute with `applied=False`, not a
-per-pixel bias model. NGL preserves `reported_fields` and its explicit gradient
-direction correction. CAMS pressure belongs to `G-MOD`, not an independent
-observation arm.
+connector-specific `published_bias` attribute with its reference, scope and
+`applied=False`. NGL preserves `reported_fields` and its explicit gradient
+direction correction. CAMS pressure includes the published grid coordinates
+and file metadata.
 
 ## Connector release notes
 
 - OLCI: adds public CDSE discovery of `OL_2_LFR___`, authenticated selective
   IWV/annotation downloads through CDSETool, packed NetCDF parsing, line times,
-  source QA, random error and the stated wet-bias finding. CDSE processor and
+  source QA, uncertainty estimate and the stated wet-bias finding. CDSE processor and
   baseline versions are preserved. No published prior/averaging kernel is
   present. See [OLCI terms](../src/spectraccess/connectors/olci_cdse/DATA_TERMS.md).
 - NGL: adds credential-free station/year archive access, day selection and

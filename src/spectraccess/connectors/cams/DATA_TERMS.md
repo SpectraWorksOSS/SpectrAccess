@@ -32,11 +32,11 @@ the dataset, exact request, URL and retrieval time. There is no automatic
 forecast substitution for dates EAC4 does not cover.
 
 `parse_surface_pressure` emits `surface_air_pressure` in Pa with valid time,
-grid-cell support and `correlation_groups=['G-MOD']`. Non-finite values are
+grid-cell support. Non-finite values are
 omitted; non-positive pressure or incompatible units fail explicitly. EAC4
 does not publish a per-cell pressure sigma, so uncertainty is unknown with
-no k or likelihood assumed. No uncertainty split or assimilated-input list
-is guessed. EAC4's model assimilation is described by the dataset, but no
+no coverage factor supplied. Assimilated inputs are retained only when listed
+by the provider. EAC4's model assimilation is described by the dataset, but no
 observation prior state/covariance or averaging kernel is published in these
 pressure files; those metadata stay absent.
 

@@ -4,13 +4,11 @@ Product variables, uncertainty, time coordinates and LQSF flags:
 https://sentiwiki.copernicus.eu/web/olci-products
 CDSE query and authenticated product-node access:
 https://documentation.dataspace.copernicus.eu/APIs/OData.html
-Published random-error validation and positive wet bias (7 to 10 percent):
+Published positive wet bias (7 to 10 percent):
 https://doi.org/10.5194/amt-15-5129-2022
 
-The validation range is a population finding, not a pixel bias estimate or a
-standard uncertainty. It is stated in published_bias, never subtracted from IWV
-or folded into random uncertainty. G-940-SURFACE is the downstream declaration
-for the shared surface-sensitive near-infrared water-vapour retrieval family.
+The validation range is retained in published_bias with its reference and scope;
+observations are not corrected using that range.
 """
 
 from __future__ import annotations
@@ -254,12 +252,12 @@ def _parse_product(path: Path, *, target: OLCITarget | None, source_url: str | N
                        latitude=lat, longitude=lon, support_kind="pixel",
                        unc_value=sigma, unc_status="provided" if sigma is not None else "unknown",
                        unc_k=1 if sigma is not None else None,
-                       unc_provider="OLCI IWV_err random error" if sigma is not None else None,
+                       unc_provider="OLCI IWV_err" if sigma is not None else None,
                        source="sentinel-3-olci-l2-iwv", source_agency="European Union / ESA",
                        source_url=target.source_url if target else source_url,
                        retrieved_at=retrieved_at, algorithm_version=algorithm,
-                       collection_version=collection, correlation_groups=["G-940-SURFACE"],
-                       sigma_basis="published random retrieval error; wet bias stated separately",
+                       collection_version=collection,
+                       unc_definition="Uncertainty estimate for the Integrated water vapour column above the current pixel",
                        published_bias=deepcopy(WET_BIAS), product_type=PRODUCT_TYPE,
                        pixel_row=i, pixel_column=j,
                        qa={"value": flag_value, "flags": active, "accepted": accepted,
@@ -274,8 +272,6 @@ def _parse_product(path: Path, *, target: OLCITarget | None, source_url: str | N
                 if np.isfinite(height):
                     row["elevation_m"] = height
                     row["qa"]["elevation_metadata"] = dict(geo.altitude.attrs)
-            if sigma is not None:
-                row.update(u_independent=sigma, uncertainty_k=1)
             # Prior state and averaging kernel are not published in OL_2_LFR.
             rows.append(row)
         return frame_from_records(rows)

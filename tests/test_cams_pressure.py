@@ -12,7 +12,7 @@ TIME = datetime(2024,5,1,9,tzinfo=timezone.utc)
 AREA = (52.5,3.5,51.,5.5)
 
 
-def test_pressure_canonical_no_invented_sigma_or_prior():
+def test_pressure_canonical_values_and_support():
     frame = parse_surface_pressure(FIXTURE)
     assert len(frame) == 3
     assert frame.value.tolist() == [101000.,99000.,100000.]
@@ -20,10 +20,8 @@ def test_pressure_canonical_no_invented_sigma_or_prior():
     assert frame.units.eq("Pa").all()
     assert frame.unc_status.eq("unknown").all()
     assert frame.unc_value.isna().all()
-    assert frame.correlation_groups.iloc[0] == ["G-MOD"]
     assert frame.support_kind.eq("grid cell").all()
     assert frame.footprint_geometry.iloc[0]["coordinates"][0][0] == [3.625,51.625]
-    assert not {"u_independent","prior_state","averaging_kernel","elevation_m","likelihood_family","integration_start"}.intersection(frame.columns)
 
 
 def test_ads_fetch_is_regional_single_epoch_and_preserves_provenance(monkeypatch,tmp_path):

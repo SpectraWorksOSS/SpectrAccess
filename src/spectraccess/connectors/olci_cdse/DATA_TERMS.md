@@ -8,6 +8,7 @@ free, full and open subject to source credit and fair-use quotas.
 - https://sentinels.copernicus.eu/documents/247904/690755/Sentinel_Data_Legal_Notice
 - https://documentation.dataspace.copernicus.eu/Quotas.html
 - Product definitions: https://sentiwiki.copernicus.eu/web/olci-products
+- Product format specification, section 4.2.1.1: https://sentiwiki.copernicus.eu/__attachments/a_6f176f578b4da9de30543ce4640d39836d5df877b47e15dd9dee306902616fd2/S3IPF-PDS-004.2-Sentinel-3-OLCI-Level-2-Land-Product-Data-Format-Specification-2.4.pdf
 - Validation: https://doi.org/10.5194/amt-15-5129-2022
 
 Discovery is public. Downloads use your CDSE account through CDSETool:
@@ -26,15 +27,13 @@ SNOW_ICE, SATURATED, SUSPECT and WVFAIL pixels. `include_flagged=True` preserves
 these finite values with `qa.accepted=False`. Fill values are always omitted.
 Full flag definitions and active names accompany each row.
 
-`IWV_err` is the published random retrieval error in kg m-2, carried as
-`unc_value`, `u_independent`, `unc_k=1` and `uncertainty_k=1`. This does not
-claim the full error is independent: the surface-sensitive family is declared
-in `correlation_groups=['G-940-SURFACE']`. Structured/common magnitudes,
-correlation lengths and a likelihood family remain unknown unless published.
+`IWV_err` is carried as `unc_value` with `unc_k=1`. `unc_definition` quotes
+the product format specification: "Uncertainty estimate for the Integrated
+water vapour column above the current pixel" (section 4.2.1.1; issue 2.4
+names the variable `IWV_unc`). Values are in kg m-2.
 The cited cloud-free land validation found a positive wet bias of 7 to 10
 percent. `published_bias` retains that range, reference and scope with
-`applied=False`. It supplies neither a per-pixel signed `bias` estimate nor
-`u_bias`; observations are never corrected using that range.
+`applied=False`; observations are never corrected using that range.
 
 OL_2_LFR does not publish a retrieval prior state/covariance or averaging
 kernel in these assets. These fields remain absent. Pixel centre and elevation

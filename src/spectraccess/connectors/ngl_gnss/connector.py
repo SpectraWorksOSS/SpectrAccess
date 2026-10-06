@@ -8,7 +8,7 @@ https://geodesy.unr.edu/NGLStationPages/llh.out
 The README's former /gps_timeseries/trop path is now under /IGS20/trop.
 Its explicit gradient-column interchange warning applies to both values and
 formal errors. Preserve reported fields and expose corrected directions.
-Return ZTD, never water vapour: pressure and Tm belong to RefCal's operator.
+Returns zenith total delay and the available tropospheric gradients.
 """
 
 from __future__ import annotations
@@ -158,9 +158,8 @@ def parse_sinex(text: str, *, station: Station | None = None, source_url: str | 
                 retrieved_at: datetime | None = None, correct_gradient_swap: bool = True) -> pd.DataFrame:
     """Read TROTOT and optional gradients by header, with formal errors in mm.
 
-    Formal errors are standard errors of the estimator, not full environmental
-    uncertainty. No independence, likelihood or integration window is assumed
-    from the five-minute sampling interval. SITE/ID supplies approximate location
+    The README describes _SIG as formal error columns. The five-minute
+    sampling interval is retained in QA. SITE/ID supplies approximate location
     if precise provider llh metadata were not passed.
     """
     section = None
@@ -236,20 +235,18 @@ def parse_sinex(text: str, *, station: Station | None = None, source_url: str | 
                        quantity=quantity, value=value / 1000, units="m",
                        unc_value=sigma, unc_status="provided" if sigma is not None else "unknown",
                        unc_k=1 if sigma is not None else None,
-                       unc_provider="NGL formal estimator error" if sigma is not None else None,
+                       unc_provider="NGL formal error" if sigma is not None else None,
                        source="ngl-gnss", source_agency="Nevada Geodetic Laboratory",
                        source_url=source_url, retrieved_at=retrieved_at,
                        support_kind="point", footprint_geometry={"type": "Point", "coordinates": [location.longitude, location.latitude]},
                        algorithm_version=software, collection_version=reference_frame.group(0) if reference_frame else None,
-                       sigma_basis="formal estimator error; excludes representativeness and shared model errors",
+                       unc_definition="Formal error columns (_SIG) for the tropospheric estimates",
                        qa={"gradient_columns_interchanged": correct_gradient_swap,
                            "gradient_warning_url": README_URL, "sampling_interval_s": sampling,
                            "location_basis": ("provider llh" if station.source_url == STATIONS_URL else "caller station metadata") if station else "approximate SINEX SITE/ID",
                            "elevation_datum": location.height_datum, "mapping_function": mapping_function},
                        reported_fields=reported, reported_field=read_field,
                        processing_inputs=processing_inputs, station_metadata_url=location.source_url)
-            if sigma is not None:
-                row["uncertainty_k"] = 1
             rows.append(row)
     if not closed or fields is None:
         raise ValueError("missing or truncated NGL TROP/SOLUTION block")
