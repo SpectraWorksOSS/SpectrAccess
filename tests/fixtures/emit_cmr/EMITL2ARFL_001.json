@@ -1,0 +1,271 @@
+{
+  "meta": {
+    "concept-type": "granule",
+    "concept-id": "G2596854797-LPCLOUD",
+    "revision-id": 2,
+    "native-id": "EMIT_L2A_RFL_001_20220810T034103_2222203_001",
+    "collection-concept-id": "C2408750690-LPCLOUD",
+    "provider-id": "LPCLOUD",
+    "format": "application/vnd.nasa.cmr.umm+json",
+    "revision-date": "2024-10-24T13:26:57.741Z"
+  },
+  "umm": {
+    "TemporalExtent": {
+      "RangeDateTime": {
+        "BeginningDateTime": "2022-08-10T03:41:03Z",
+        "EndingDateTime": "2022-08-10T03:41:15Z"
+      }
+    },
+    "GranuleUR": "EMIT_L2A_RFL_001_20220810T034103_2222203_001",
+    "AdditionalAttributes": [
+      {
+        "Name": "SOFTWARE_BUILD_VERSION",
+        "Values": [
+          "010609"
+        ]
+      },
+      {
+        "Name": "Identifier_product_doi_authority",
+        "Values": [
+          "https://doi.org"
+        ]
+      },
+      {
+        "Name": "Identifier_product_doi",
+        "Values": [
+          "10.5067/EMIT/EMITL2ARFL.001"
+        ]
+      },
+      {
+        "Name": "ORBIT",
+        "Values": [
+          "2222203"
+        ]
+      },
+      {
+        "Name": "ORBIT_SEGMENT",
+        "Values": [
+          "0"
+        ]
+      },
+      {
+        "Name": "SCENE",
+        "Values": [
+          "1"
+        ]
+      },
+      {
+        "Name": "SOLAR_ZENITH",
+        "Values": [
+          "8.28"
+        ]
+      },
+      {
+        "Name": "SOLAR_AZIMUTH",
+        "Values": [
+          "42.57"
+        ]
+      }
+    ],
+    "SpatialExtent": {
+      "HorizontalSpatialDomain": {
+        "Geometry": {
+          "GPolygons": [
+            {
+              "Boundary": {
+                "Points": [
+                  {
+                    "Longitude": 73.69477844238281,
+                    "Latitude": 22.39096450805664
+                  },
+                  {
+                    "Longitude": 73.1546630859375,
+                    "Latitude": 21.768932342529297
+                  },
+                  {
+                    "Longitude": 73.73129272460938,
+                    "Latitude": 21.268230438232422
+                  },
+                  {
+                    "Longitude": 74.27140808105469,
+                    "Latitude": 21.890262603759766
+                  },
+                  {
+                    "Longitude": 73.69477844238281,
+                    "Latitude": 22.39096450805664
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    },
+    "ProviderDates": [
+      {
+        "Date": "2023-01-26T16:49:52Z",
+        "Type": "Update"
+      }
+    ],
+    "CollectionReference": {
+      "ShortName": "EMITL2ARFL",
+      "Version": "001"
+    },
+    "PGEVersionClass": {
+      "PGEName": "emit-sds-l2a",
+      "PGEVersion": "v1.3.2"
+    },
+    "RelatedUrls": [
+      {
+        "URL": "https://opendap.earthdata.nasa.gov/collections/C2408750690-LPCLOUD/granules/EMIT_L2A_RFL_001_20220810T034103_2222203_001",
+        "Type": "USE SERVICE API",
+        "Subtype": "OPENDAP DATA",
+        "Description": "OPeNDAP request URL"
+      },
+      {
+        "URL": "https://data.lpdaac.earthdatacloud.nasa.gov/lp-prod-protected/EMITL2ARFL.001/EMIT_L2A_RFL_001_20220810T034103_2222203_001/EMIT_L2A_RFL_001_20220810T034103_2222203_001.nc",
+        "Description": "Download EMIT_L2A_RFL_001_20220810T034103_2222203_001.nc",
+        "Type": "GET DATA"
+      },
+      {
+        "URL": "https://data.lpdaac.earthdatacloud.nasa.gov/lp-prod-protected/EMITL2ARFL.001/EMIT_L2A_RFL_001_20220810T034103_2222203_001/EMIT_L2A_RFLUNCERT_001_20220810T034103_2222203_001.nc",
+        "Description": "Download EMIT_L2A_RFLUNCERT_001_20220810T034103_2222203_001.nc",
+        "Type": "GET DATA"
+      },
+      {
+        "URL": "https://data.lpdaac.earthdatacloud.nasa.gov/lp-prod-protected/EMITL2ARFL.001/EMIT_L2A_RFL_001_20220810T034103_2222203_001/EMIT_L2A_MASK_001_20220810T034103_2222203_001.nc",
+        "Description": "Download EMIT_L2A_MASK_001_20220810T034103_2222203_001.nc",
+        "Type": "GET DATA"
+      },
+      {
+        "URL": "https://data.lpdaac.earthdatacloud.nasa.gov/lp-prod-public/EMITL2ARFL.001/EMIT_L2A_RFL_001_20220810T034103_2222203_001/EMIT_L2A_RFL_001_20220810T034103_2222203_001.png",
+        "Description": "Download EMIT_L2A_RFL_001_20220810T034103_2222203_001.png",
+        "Type": "GET RELATED VISUALIZATION"
+      },
+      {
+        "URL": "https://data.lpdaac.earthdatacloud.nasa.gov/lp-prod-protected/EMITL2ARFL.001/EMIT_L2A_RFL_001_20220810T034103_2222203_001/EMIT_L2A_RFL_001_20220810T034103_2222203_001.cmr.json",
+        "Description": "Download EMIT_L2A_RFL_001_20220810T034103_2222203_001.cmr.json",
+        "Type": "EXTENDED METADATA"
+      },
+      {
+        "URL": "https://data.lpdaac.earthdatacloud.nasa.gov/lp-prod-protected/EMITL2ARFL.001/EMIT_L2A_RFL_001_20220810T034103_2222203_001/EMIT_L2A_RFL_001_20220810T034103_2222203_001.nc.dmrpp",
+        "Description": "Download EMIT_L2A_RFL_001_20220810T034103_2222203_001.nc.dmrpp",
+        "Type": "VIEW RELATED INFORMATION"
+      },
+      {
+        "URL": "https://data.lpdaac.earthdatacloud.nasa.gov/lp-prod-public/EMITL2ARFL.001/EMIT_L2A_RFL_001_20220810T034103_2222203_001/EMIT_L2A_RFLUNCERT_001_20220810T034103_2222203_001.nc.dmrpp",
+        "Description": "Download EMIT_L2A_RFLUNCERT_001_20220810T034103_2222203_001.nc.dmrpp",
+        "Type": "EXTENDED METADATA"
+      },
+      {
+        "URL": "https://data.lpdaac.earthdatacloud.nasa.gov/lp-prod-public/EMITL2ARFL.001/EMIT_L2A_RFL_001_20220810T034103_2222203_001/EMIT_L2A_MASK_001_20220810T034103_2222203_001.nc.dmrpp",
+        "Description": "Download EMIT_L2A_MASK_001_20220810T034103_2222203_001.nc.dmrpp",
+        "Type": "EXTENDED METADATA"
+      },
+      {
+        "URL": "s3://lp-prod-protected/EMITL2ARFL.001/EMIT_L2A_RFL_001_20220810T034103_2222203_001/EMIT_L2A_RFL_001_20220810T034103_2222203_001.nc",
+        "Description": "This link provides direct download access via S3 to the granule",
+        "Type": "GET DATA VIA DIRECT ACCESS"
+      },
+      {
+        "URL": "s3://lp-prod-protected/EMITL2ARFL.001/EMIT_L2A_RFL_001_20220810T034103_2222203_001/EMIT_L2A_RFLUNCERT_001_20220810T034103_2222203_001.nc",
+        "Description": "This link provides direct download access via S3 to the granule",
+        "Type": "GET DATA VIA DIRECT ACCESS"
+      },
+      {
+        "URL": "s3://lp-prod-protected/EMITL2ARFL.001/EMIT_L2A_RFL_001_20220810T034103_2222203_001/EMIT_L2A_MASK_001_20220810T034103_2222203_001.nc",
+        "Description": "This link provides direct download access via S3 to the granule",
+        "Type": "GET DATA VIA DIRECT ACCESS"
+      },
+      {
+        "URL": "s3://lp-prod-public/EMITL2ARFL.001/EMIT_L2A_RFL_001_20220810T034103_2222203_001/EMIT_L2A_RFL_001_20220810T034103_2222203_001.png",
+        "Description": "This link provides direct download access via S3 to the granule",
+        "Type": "GET RELATED VISUALIZATION"
+      },
+      {
+        "URL": "s3://lp-prod-protected/EMITL2ARFL.001/EMIT_L2A_RFL_001_20220810T034103_2222203_001/EMIT_L2A_RFL_001_20220810T034103_2222203_001.cmr.json",
+        "Description": "This link provides direct download access via S3 to the granule",
+        "Type": "EXTENDED METADATA"
+      },
+      {
+        "URL": "s3://lp-prod-protected/EMITL2ARFL.001/EMIT_L2A_RFL_001_20220810T034103_2222203_001/EMIT_L2A_RFL_001_20220810T034103_2222203_001.nc.dmrpp",
+        "Description": "This link provides direct download access via S3 to the granule",
+        "Type": "VIEW RELATED INFORMATION"
+      },
+      {
+        "URL": "s3://lp-prod-public/EMITL2ARFL.001/EMIT_L2A_RFL_001_20220810T034103_2222203_001/EMIT_L2A_RFLUNCERT_001_20220810T034103_2222203_001.nc.dmrpp",
+        "Description": "This link provides direct download access via S3 to the granule",
+        "Type": "EXTENDED METADATA"
+      },
+      {
+        "URL": "s3://lp-prod-public/EMITL2ARFL.001/EMIT_L2A_RFL_001_20220810T034103_2222203_001/EMIT_L2A_MASK_001_20220810T034103_2222203_001.nc.dmrpp",
+        "Description": "This link provides direct download access via S3 to the granule",
+        "Type": "EXTENDED METADATA"
+      },
+      {
+        "URL": "https://data.lpdaac.earthdatacloud.nasa.gov/s3credentials",
+        "Description": "api endpoint to retrieve temporary credentials valid for same-region direct s3 access",
+        "Type": "VIEW RELATED INFORMATION"
+      }
+    ],
+    "CloudCover": 100,
+    "DataGranule": {
+      "DayNightFlag": "Day",
+      "ArchiveAndDistributionInformation": [
+        {
+          "Name": "EMIT_L2A_RFL_001_20220810T034103_2222203_001.nc",
+          "SizeInBytes": 1851014728,
+          "Format": "NETCDF-4",
+          "Checksum": {
+            "Value": "e8abca120e27bc8514311bb1de415f4385eb63883ba7d5fe16903c969b2c23398ec0a8b0c1beeccd0a248d9b576a0829a1e73bee8704f105290088edd33cf058",
+            "Algorithm": "SHA-512"
+          }
+        },
+        {
+          "Name": "EMIT_L2A_RFLUNCERT_001_20220810T034103_2222203_001.nc",
+          "SizeInBytes": 1851014740,
+          "Format": "NETCDF-4",
+          "Checksum": {
+            "Value": "0576bc11d2d99f5b6c41adaccb7df1b577837db27b8d91d354da49e21453b651b2155acaf7382ab500dc156fb4bdb4465c6bf185448814a5184142c1b929d768",
+            "Algorithm": "SHA-512"
+          }
+        },
+        {
+          "Name": "EMIT_L2A_MASK_001_20220810T034103_2222203_001.nc",
+          "SizeInBytes": 49770015,
+          "Format": "NETCDF-4",
+          "Checksum": {
+            "Value": "a8e18fed494dc4d2c30223c3287986ddb4feb67ef4044c77d485d79f69368fd45679f2f43956a8e16b7b86268727d535287584e8cab287ab43fc37c2e4a9bed7",
+            "Algorithm": "SHA-512"
+          }
+        },
+        {
+          "Name": "EMIT_L2A_RFL_001_20220810T034103_2222203_001.png",
+          "SizeInBytes": 1105247,
+          "Format": "PNG",
+          "Checksum": {
+            "Value": "8bf8413fbfeb4dc40bc8fa393e53e20412ac032c459677a26be1b47fabd6670fe534f54bee859bc57c8ac2da634a05ce3921ce54d9fd7826fea1f48941b07752",
+            "Algorithm": "SHA-512"
+          }
+        }
+      ],
+      "ProductionDateTime": "2023-01-26T16:49:52Z"
+    },
+    "Platforms": [
+      {
+        "ShortName": "ISS",
+        "Instruments": [
+          {
+            "ShortName": "EMIT Imaging Spectrometer"
+          }
+        ]
+      }
+    ],
+    "MetadataSpecification": {
+      "URL": "https://cdn.earthdata.nasa.gov/umm/granule/v1.6.7",
+      "Name": "UMM-G",
+      "Version": "1.6.7"
+    }
+  },
+  "_fixture_source": "https://cmr.earthdata.nasa.gov/search/granules.umm_json?short_name=EMITL2ARFL&version=001&page_size=1"
+}
