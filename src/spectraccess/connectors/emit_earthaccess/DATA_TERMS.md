@@ -58,8 +58,12 @@ The raw `lat` and `lon` coordinates retain provider degree units. GLT values
 and dimensions remain as published, including V001 `-9999` and V002 `0` fill.
 The reader does not infer an index base or orthorectify.
 
-`mask` uses `(downtrack, crosstrack, mask_bands)`. V001 bands 6 and 7
-(zero-based) are also exposed as `aerosol_optical_depth` and `water_vapor`.
+`mask` uses `(downtrack, crosstrack, mask_bands)`. V001 provider labels `AOD550`
+and `H2O (g cm-2)` select `aerosol_optical_depth` and `water_vapor`
+case-insensitively. Only absent labels permit fallback to ATBD channels 6 and 7
+(zero-based indices 5 and 6). Each alias records `alias_source` as
+`provider mask_bands label` or `ATBD channel order`. Published labels that fail
+to identify both channels raise `ValueError`.
 V002 accepts the separate EMITL2AMASK file and preserves provider value arrays.
 `obs` uses `(downtrack, crosstrack, observation_bands)` for L1B observation
 geometry. Labels are preserved as `mask_<provider_name>` and

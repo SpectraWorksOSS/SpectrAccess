@@ -186,8 +186,12 @@ orthorectification is performed. Global file metadata, including
 `product_version`, binds the band parameters to this granule.
 
 `mask` has `(downtrack, crosstrack, mask_bands)` dimensions. For V001,
-zero-based bands 6 and 7 are also exposed as `aerosol_optical_depth` and
-`water_vapor`. V002 accepts the separate EMITL2AMASK product and preserves its
+provider labels `AOD550` and `H2O (g cm-2)` select `aerosol_optical_depth` and
+`water_vapor` case-insensitively. Only when no labels are published does the
+reader use ATBD channels 6 and 7 (zero-based indices 5 and 6). Each alias records
+`alias_source` as `provider mask_bands label` or `ATBD channel order`.
+Published labels that fail to identify both channels raise `ValueError`.
+V002 accepts the separate EMITL2AMASK product and preserves its
 published value arrays. Band labels are preserved as `mask_<provider_name>`.
 `obs` has `(downtrack, crosstrack, observation_bands)` dimensions, with geometry
 band labels in `obs_<provider_name>` (including solar/view zenith and azimuth).

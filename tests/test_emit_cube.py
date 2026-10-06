@@ -14,7 +14,14 @@ from test_emit_earthaccess import _granule
 from spectraccess.connectors.emit_earthaccess.connector import _target_from_granule
 
 
-def write_product(path, version="001", variable="reflectance", bands=10, offset=0):
+V001_MASK_LABELS = [
+    "Cloud flag", "Cirrus flag", "Standing water flag", "Spacecraft flag",
+    "Dilated cloud mask", "AOD550", "H2O (g cm-2)", "Aggregate bad data flag",
+]
+
+
+def write_product(path, version="001", variable="reflectance", bands=10, offset=0,
+                  mask_labels=True):
     dims = ("downtrack", "crosstrack", "bands")
     values = np.arange(4 * 3 * bands, dtype="float32").reshape(4, 3, bands) / 100
     values[0, 0, 0] = -9999
@@ -37,8 +44,11 @@ def write_product(path, version="001", variable="reflectance", bands=10, offset=
         names = [f"channel_{i}" for i in range(bands)]
         if variable == "obs":
             names[:4] = ["Solar Zenith", "Solar Azimuth", "View Zenith", "View Azimuth"]
+        elif variable == "mask" and version == "001":
+            names = V001_MASK_LABELS
         params = xr.Dataset({variable + "_bands": ("bands", names)})
-    params.to_netcdf(path, group="sensor_band_parameters", mode="a", engine="h5netcdf")
+    if variable != "mask" or mask_labels:
+        params.to_netcdf(path, group="sensor_band_parameters", mode="a", engine="h5netcdf")
     if variable == "reflectance":
         fill = -9999 if version == "001" else 0
         glt = np.arange(20, dtype="int32").reshape(4, 5)
@@ -82,7 +92,11 @@ def test_raw_cube(version, tmp_path):
         assert "for each channel" in cube.reflectance_uncertainty.attrs["provider_definition"]
         assert "one standard deviation" in cube.reflectance_uncertainty.attrs["long_name"]
         if version == "001":
-            xr.testing.assert_equal(cube.water_vapor, cube["mask"].isel(mask_bands=7, drop=True).rename("water_vapor"))
+            assert cube.aerosol_optical_depth[0, 0] == pytest.approx(0.05)
+            assert cube.water_vapor[0, 0] == pytest.approx(0.06)
+            assert cube.water_vapor[0, 0] != cube["mask"][0, 0, 7]
+            assert cube.aerosol_optical_depth.attrs["alias_source"] == "provider mask_bands label"
+            assert cube.water_vapor.attrs["alias_source"] == "provider mask_bands label"
         else:
             assert cube.water_vapor.attrs["units"] == "g cm-2"
             assert "aerosol_optical_depth" not in cube
@@ -167,3 +181,49 @@ def test_unknown_version_rejected_without_filename_guess(tmp_path):
     path = write_product(tmp_path / "EMIT_L2A_RFL_001.nc", version="003")
     with pytest.raises(ValueError, match="unsupported EMIT product version"):
         read_cube(path)
+
+
+def test_v001_mask_aliases_follow_labels_not_positions(tmp_path):
+    rfl = write_product(tmp_path / "rfl.nc")
+    mask = write_product(tmp_path / "mask.nc", variable="mask", bands=8)
+    # Reorder both value channels and labels, changing case to exercise matching.
+    order = [5, 6, 0, 1, 2, 3, 4, 7]
+    with xr.open_dataset(mask, engine="h5netcdf", mask_and_scale=False) as source:
+        reordered = source.isel(bands=order).load()
+    reordered.to_netcdf(mask, mode="a", engine="h5netcdf")
+    labels = [V001_MASK_LABELS[index].swapcase() for index in order]
+    xr.Dataset({"mask_bands": ("bands", labels)}).to_netcdf(
+        mask, group="sensor_band_parameters", mode="a", engine="h5netcdf",
+    )
+    with read_cube(rfl, mask=mask) as cube:
+        assert cube.aerosol_optical_depth[0, 0] == pytest.approx(0.05)
+        assert cube.water_vapor[0, 0] == pytest.approx(0.06)
+        assert cube.aerosol_optical_depth.attrs["alias_source"] == "provider mask_bands label"
+        assert cube.water_vapor.attrs["alias_source"] == "provider mask_bands label"
+
+
+@pytest.mark.parametrize("empty_group", [False, True])
+def test_v001_mask_aliases_fall_back_only_without_labels(tmp_path, empty_group):
+    rfl = write_product(tmp_path / "rfl.nc")
+    mask = write_product(tmp_path / "mask.nc", variable="mask", bands=8, mask_labels=False)
+    if empty_group:
+        xr.Dataset().to_netcdf(mask, group="sensor_band_parameters", mode="a", engine="h5netcdf")
+    with read_cube(rfl, mask=mask) as cube:
+        assert cube.aerosol_optical_depth[0, 0] == pytest.approx(0.05)
+        assert cube.water_vapor[0, 0] == pytest.approx(0.06)
+        assert cube.aerosol_optical_depth.attrs["alias_source"] == "ATBD channel order"
+        assert cube.water_vapor.attrs["alias_source"] == "ATBD channel order"
+
+
+@pytest.mark.parametrize("missing", [(5,), (6,), (5, 6)])
+def test_v001_mask_aliases_reject_unrecognized_published_labels(tmp_path, missing):
+    rfl = write_product(tmp_path / "rfl.nc")
+    mask = write_product(tmp_path / "mask.nc", variable="mask", bands=8)
+    labels = V001_MASK_LABELS.copy()
+    for index in missing:
+        labels[index] = "Unknown channel"
+    xr.Dataset({"mask_bands": ("bands", labels)}).to_netcdf(
+        mask, group="sensor_band_parameters", mode="a", engine="h5netcdf",
+    )
+    with pytest.raises(ValueError, match="V001 mask_bands labels must identify"):
+        read_cube(rfl, mask=mask)
