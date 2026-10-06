@@ -204,8 +204,25 @@ must match. Provider scene identifiers are checked when present.
 `parse` and `parse_canonical` still return metadata DataFrames. When given an
 existing local file, they share `read_product_metadata` with the cube reader
 and check its version against the CMR target. Passing `target` to `read_cube`
-performs the same check. Discovery continues to support its existing V001
-collections; the local reader supports V001 and V002.
+performs the same check. Discovery and local reading support V001 and V002.
+
+EMIT discovery uses NASA CMR collection short names. Companion files are
+selected from a discovered target with `fetch(target, dest=..., asset=...)`:
+
+| Collection | Versions | Assets and fetch selectors |
+| --- | --- | --- |
+| EMITL2ARFL | 001, 002 | RFL (`primary`), RFLUNCERT (`uncertainty`); MASK (`mask`) in 001 only |
+| EMITL1BRAD | 001, 002 | RAD (`primary`), OBS (`observation`) |
+| EMITL2AMASK | 002 | MASK (`primary` or `mask`) |
+
+`discover(product="EMITL2ARFL", version="002", ...)` selects V002 explicitly.
+Omitting `version` retains V001 for RFL and RAD and selects V002 for the standalone
+mask collection. RFLUNCERT and OBS are companion assets in both versions,
+rather than separate `EMITL2ARFLUNCERT` or `EMITL1BOBS` collections. For V002,
+discover the mask separately as `product="EMITL2AMASK", version="002"`.
+Fetch continues to download one selected file and verify its provider checksum.
+See the [NASA CMR sources and filename prefixes](src/spectraccess/connectors/emit_earthaccess/DATA_TERMS.md#collection-and-asset-layout)
+for the published collection layout.
 
 The Landsat connector applies the same boundary to Collection-2 L1TP products:
 EODAG owns USGS search, authentication, retries, and download transport;

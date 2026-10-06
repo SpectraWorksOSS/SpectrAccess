@@ -33,9 +33,10 @@ except ImportError as exc:  # pragma: no cover - packaging boundary
     ) from exc
 
 
-SUPPORTED_COLLECTIONS: Mapping[str, str] = {
-    "EMITL1BRAD": "001",
-    "EMITL2ARFL": "001",
+SUPPORTED_COLLECTIONS: Mapping[str, tuple[str, ...]] = {
+    "EMITL1BRAD": ("001", "002"),
+    "EMITL2ARFL": ("001", "002"),
+    "EMITL2AMASK": ("002",),
 }
 SOURCE = "nasa-earthdata-lp-daac"
 SOURCE_AGENCY = "NASA / LP DAAC"
@@ -124,12 +125,12 @@ class EMITEarthaccessConnector(Connector):
             raise ValueError(
                 f"unsupported EMIT product {product!r}; supported: {sorted(SUPPORTED_COLLECTIONS)}"
             )
-        expected_version = SUPPORTED_COLLECTIONS[product]
-        selected_version = version or expected_version
-        if selected_version != expected_version:
+        supported_versions = SUPPORTED_COLLECTIONS[product]
+        selected_version = version or supported_versions[0]
+        if selected_version not in supported_versions:
             raise ValueError(
                 f"unsupported {product} version {selected_version!r}; "
-                f"reviewed version is {expected_version!r}"
+                f"reviewed versions are {supported_versions!r}"
             )
         if limit < 0 or limit > _MAX_RESULTS:
             raise ValueError(f"limit must be between 0 and {_MAX_RESULTS}")
@@ -165,7 +166,10 @@ class EMITEarthaccessConnector(Connector):
             granules = list(earthaccess.search_data(**query))
         except Exception as exc:
             raise EMITProviderError(f"EMIT CMR discovery failed: {exc}") from exc
-        targets = [_target_from_granule(granule, expected_product=product) for granule in granules]
+        targets = [
+            _target_from_granule(granule, expected_product=product, expected_version=selected_version)
+            for granule in granules
+        ]
         return sorted(targets, key=lambda target: target.start_time, reverse=True)
 
     def fetch(
@@ -346,7 +350,9 @@ def target_to_canonical(
     return validate(pd.DataFrame(rows))
 
 
-def _target_from_granule(granule: Mapping[str, Any], *, expected_product: str) -> EMITTarget:
+def _target_from_granule(
+    granule: Mapping[str, Any], *, expected_product: str, expected_version: str | None = None,
+) -> EMITTarget:
     raw = dict(granule)
     meta = _mapping(raw.get("meta"), "meta")
     umm = _mapping(raw.get("umm"), "umm")
@@ -357,9 +363,13 @@ def _target_from_granule(granule: Mapping[str, Any], *, expected_product: str) -
         raise EMITProductError(
             f"CMR returned collection {collection!r}, expected {expected_product!r}"
         )
-    if SUPPORTED_COLLECTIONS.get(collection) != collection_version:
+    if collection_version not in SUPPORTED_COLLECTIONS.get(collection, ()):
         raise EMITProductError(
             f"CMR returned unreviewed {collection} version {collection_version!r}"
+        )
+    if expected_version is not None and collection_version != expected_version:
+        raise EMITProductError(
+            f"CMR returned version {collection_version!r}, expected {expected_version!r}"
         )
 
     temporal = _mapping(umm.get("TemporalExtent"), "TemporalExtent")
@@ -481,6 +491,8 @@ def _select_asset(target: EMITTarget, selector: str) -> tuple[str, str]:
     elif selector == "observation":
         matches = [name for name, upper in upper_names.items() if "_OBS_" in upper]
     elif selector == "primary":
+        if target.collection == "EMITL2AMASK":
+            return _select_asset(target, "mask")
         matches = [
             name for name, upper in upper_names.items()
             if "UNCERT" not in upper and "_MASK_" not in upper and "_OBS_" not in upper

@@ -27,8 +27,7 @@ target=None)` and `EMITEarthaccessConnector.read_cube` return a lazy
 `xarray.Dataset` using xarray and h5netcdf from `spectraccess[emit]`.
 `parse` and `parse_canonical` retain their metadata DataFrame outputs; all three
 use the same local metadata parser to check file versions against an optional
-CMR target. Discovery retains its V001 collection support; local reading
-supports V001 and V002.
+CMR target. Discovery and local reading support V001 and V002.
 
 ```python
 from spectraccess.connectors.emit_earthaccess import read_cube
@@ -73,3 +72,36 @@ scene identifiers are checked when present. No quality judgement is added.
 
 Provider uncertainty definition: NASA EMIT L2A ATBD, section 5 and Table 1,
 https://lpdaac.usgs.gov/documents/1571/EMITL2A_ATBD_v1.pdf.
+
+## Collection and asset layout
+
+The following layout was checked against NASA's public CMR catalog on
+2026-10-07. Each source query returns LP DAAC granule metadata, including
+`CollectionReference`, the archive filenames and checksums, and protected
+HTTPS asset URLs. These queries read metadata without downloading science
+files or authenticating.
+
+| Collection | Version | Published NetCDF filename prefixes | CMR source |
+| --- | --- | --- | --- |
+| EMITL2ARFL | 001 | `EMIT_L2A_RFL_001_`, `EMIT_L2A_RFLUNCERT_001_`, `EMIT_L2A_MASK_001_` | [RFL V001](https://cmr.earthdata.nasa.gov/search/granules.umm_json?short_name=EMITL2ARFL&version=001&page_size=1) |
+| EMITL2ARFL | 002 | `EMIT_L2A_RFL_002_`, `EMIT_L2A_RFLUNCERT_002_` | [RFL V002](https://cmr.earthdata.nasa.gov/search/granules.umm_json?short_name=EMITL2ARFL&version=002&page_size=1) |
+| EMITL1BRAD | 001 | `EMIT_L1B_RAD_001_`, `EMIT_L1B_OBS_001_` | [RAD V001](https://cmr.earthdata.nasa.gov/search/granules.umm_json?short_name=EMITL1BRAD&version=001&page_size=1) |
+| EMITL1BRAD | 002 | `EMIT_L1B_RAD_002_`, `EMIT_L1B_OBS_002_` | [RAD V002](https://cmr.earthdata.nasa.gov/search/granules.umm_json?short_name=EMITL1BRAD&version=002&page_size=1) |
+| EMITL2AMASK | 002 | `EMIT_L2A_MASK_002_` | [MASK V002](https://cmr.earthdata.nasa.gov/search/granules.umm_json?short_name=EMITL2AMASK&version=002&page_size=1) |
+
+The [LP DAAC collection inventory](https://cmr.earthdata.nasa.gov/search/collections.umm_json?keyword=EMIT&provider=LPCLOUD&page_size=100)
+publishes these collection short names and versions. Exact-name searches for
+[EMITL2ARFLUNCERT](https://cmr.earthdata.nasa.gov/search/collections.umm_json?short_name=EMITL2ARFLUNCERT&provider=LPCLOUD)
+and [EMITL1BOBS](https://cmr.earthdata.nasa.gov/search/collections.umm_json?short_name=EMITL1BOBS&provider=LPCLOUD)
+returned no collections. Use `asset="uncertainty"` on an EMITL2ARFL target
+and `asset="observation"` on an EMITL1BRAD target for both versions.
+V001 masks use `asset="mask"` on the RFL target; V002 masks require separate
+EMITL2AMASK discovery, with `asset="primary"` or `asset="mask"` for fetch.
+Exact asset filenames also remain valid fetch selectors.
+
+For example, the recorded V002 RFL and RAD filenames end in
+`20220810T034103.nc`; their V001 counterparts and the V002 MASK example end in
+`20220810T034103_2222203_001.nc`. The connector uses the published URLs and
+filenames rather than constructing companion names. Omitting the discovery
+version keeps 001 for RFL/RAD and selects 002 for standalone MASK. Other
+collection/version pairs are rejected before querying CMR.

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from copy import deepcopy
 from dataclasses import replace
 from datetime import date, datetime, timezone
@@ -212,7 +213,7 @@ def test_emit_extra_keeps_python_312_requirement_fail_closed():
     assert "EMIT extra requires Python 3.12 or newer" in overview
 
 
-@pytest.mark.parametrize("product", ["EMITL2BMIN", "SENTINEL2"])
+@pytest.mark.parametrize("product", ["EMITL2BMIN", "SENTINEL2", "EMITL2ARFLUNCERT", "EMITL1BOBS"])
 def test_discover_rejects_unreviewed_product_before_provider_call(monkeypatch, product):
     monkeypatch.setattr(
         module.earthaccess,
@@ -225,7 +226,7 @@ def test_discover_rejects_unreviewed_product_before_provider_call(monkeypatch, p
 
 def test_discover_rejects_unreviewed_version_and_unbounded_limit():
     with pytest.raises(ValueError, match="reviewed version"):
-        EMITEarthaccessConnector().discover(version="002")
+        EMITEarthaccessConnector().discover(version="003")
     with pytest.raises(ValueError, match="between 0 and 2000"):
         EMITEarthaccessConnector().discover(limit=2001)
     with pytest.raises(ValueError, match="invalid EPSG:4326 bbox"):
@@ -348,3 +349,70 @@ def test_connector_run_carries_target_into_parse(monkeypatch, tmp_path):
     result = connector.run(canonical=True, fetch_kwargs={"dest": tmp_path})
     assert result["product_id"].eq(targets[0].product_id).all()
     assert result["source"].eq("nasa-earthdata-lp-daac").all()
+
+
+@pytest.mark.parametrize("product,version,roles", [
+    ("EMITL2ARFL", "001", {"primary": "RFL", "uncertainty": "RFLUNCERT", "mask": "MASK"}),
+    ("EMITL2ARFL", "002", {"primary": "RFL", "uncertainty": "RFLUNCERT"}),
+    ("EMITL1BRAD", "001", {"primary": "RAD", "observation": "OBS"}),
+    ("EMITL1BRAD", "002", {"primary": "RAD", "observation": "OBS"}),
+    ("EMITL2AMASK", "002", {"primary": "MASK", "mask": "MASK"}),
+])
+def test_recorded_cmr_collection_versions_and_fetch(monkeypatch, tmp_path, product, version, roles):
+    fixture = Path(__file__).resolve().parent / "fixtures" / "emit_cmr" / f"{product}_{version}.json"
+    granule = json.loads(fixture.read_text(encoding="utf-8"))
+    calls = []
+
+    def search(**kwargs):
+        calls.append(kwargs)
+        return [granule]
+
+    monkeypatch.setattr(module.earthaccess, "search_data", search)
+    connector = EMITEarthaccessConnector()
+    target = connector.discover(product=product.lower(), version=version, limit=1)[0]
+    assert calls[0]["short_name"] == product
+    assert calls[0]["version"] == version
+    assert target.collection == product and target.version == version
+    assert len(target.assets) == len(set(roles.values()))
+    assert set(target.assets) == set(target.checksums) == set(target.asset_sizes_bytes)
+    payload = b"synthetic download through unchanged fetch path"
+    checksum = hashlib.sha512(payload).hexdigest()
+    target = replace(target, checksums={name: ("SHA-512", checksum) for name in target.assets})
+    downloads = []
+    logins = []
+    monkeypatch.setattr(module.earthaccess, "login", lambda **kwargs: logins.append(kwargs))
+
+    def download(urls, *, local_path, **kwargs):
+        downloads.append(urls)
+        output = Path(local_path) / Path(urls[0]).name
+        output.write_bytes(payload)
+        return [output]
+
+    monkeypatch.setattr(module.earthaccess, "download", download)
+    for role, token in roles.items():
+        output = Path(connector.fetch(target, dest=tmp_path, asset=role))
+        assert f"_{token}_{version}_" in output.name
+        assert output.read_bytes() == payload
+        assert downloads[-1] == [target.assets[output.name]]
+    assert len(logins) == len(roles)
+    if product == "EMITL2ARFL" and version == "002":
+        with pytest.raises(EMITDownloadError, match="matched 0 assets"):
+            connector.fetch(target, dest=tmp_path, asset="mask")
+
+
+def test_mask_defaults_to_published_version_and_rejects_v001(monkeypatch):
+    fixture = Path(__file__).resolve().parent / "fixtures" / "emit_cmr" / "EMITL2AMASK_002.json"
+    calls = []
+    monkeypatch.setattr(module.earthaccess, "search_data",
+                        lambda **kwargs: calls.append(kwargs) or [json.loads(fixture.read_text())])
+    assert EMITEarthaccessConnector().discover(product="EMITL2AMASK")[0].version == "002"
+    assert calls[0]["version"] == "002"
+    with pytest.raises(ValueError, match="reviewed versions"):
+        EMITEarthaccessConnector().discover(product="EMITL2AMASK", version="001")
+    assert len(calls) == 1
+
+
+def test_discovery_rejects_supported_but_unrequested_version(monkeypatch):
+    monkeypatch.setattr(module.earthaccess, "search_data", lambda **kwargs: [_granule()])
+    with pytest.raises(EMITProductError, match="returned version '001', expected '002'"):
+        EMITEarthaccessConnector().discover(version="002")
