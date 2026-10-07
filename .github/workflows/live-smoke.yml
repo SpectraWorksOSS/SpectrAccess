@@ -16,7 +16,7 @@ jobs:
       fail-fast: false
       matrix:
         connector:
-          [gsics, modis_viirs_cal, radcalnet, sentinel2_cdse, aeronet, cams, emit_earthaccess, landsat_eodag]
+          [gsics, modis_viirs_cal, radcalnet, sentinel2_cdse, aeronet, cams, emit_earthaccess, landsat_eodag, olci_cdse, ngl_gnss, cams_pressure]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

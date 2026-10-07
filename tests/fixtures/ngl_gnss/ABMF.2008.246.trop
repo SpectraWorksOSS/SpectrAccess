@@ -1,0 +1,59 @@
+%=TRO 1.00 NGL 25:198:20675 NGL 08:246:00000 08:246:86100 P ABMF
++FILE/REFERENCE
+ DESCRIPTION    Nevada Geodetic Laboratory, University of Nevada, Reno, USA
+ OUTPUT         Total/Wet Zenith Tropo Delay, Gradients, Water Vapor, Mean Temp
+ CONTACT        Geoffrey Blewitt; gblewitt@unr.edu; http://geodesy.unr.edu
+ SOFTWARE       GipsyX-2.3 gd2e.py w/NGL pppCluster, pppZap, pppTrop, wet2vapor
+ HARDWARE       NGL Dell PowerEdge x86_64 GNU/Linux/Fedora custom cluster
+ INPUT          RINEX; JPL/IGS20 orbits,IONEX; VMF1/NWM grid; Chalmers/JPL GOT4.8/ac
+-FILE/REFERENCE
+*
+*
++SITE/ID
+*CODE PT DOMES____ T _STATION DESCRIPTION__ APPROX_LON_ APPROX_LAT_ _APP_H_
+ ABMF  A 97103M001 P Les Abymes,Guadeloupe  298 28 20.9  16 15 44.3   -25.3
+-SITE/ID
+*
++SITE/RECEIVER
+*SITE PT SOLN T DATA_START__ DATA_END____ DESCRIPTION_________ S/N__ FIRMWARE___
+ ABMF  A 0001 P 08:246:00000 08:246:86100 ASHTECH UZ-12        ----- -----------
+-SITE/RECEIVER
+*
++SITE/ANTENNA
+*SITE PT SOLN T DATA_START__ DATA_END____ DESCRIPTION_________ S/N__
+ ABMF  A 0001 P 08:246:00000 08:246:86100 AERAT2775_43    SPKE -----
+-SITE/ANTENNA
+*
++SITE/GPS_PHASE_CENTER
+*                           UP____ NORTH_ EAST__ UP____ NORTH_ EAST__
+*DESCRIPTION_________ S/N__ L1->ARP(m)__________ __L2->ARP(m)________ AZ_EL____
+-SITE/GPS_PHASE_CENTER
+*
++SITE/ECCENTRICITY
+*                                             UP______ NORTH___ EAST____
+*SITE PT SOLN T DATA_START__ DATA_END____ AXE ARP->BENCHMARK(m)_________
+ ABMF  A 0001 P 08:246:00000 08:246:86100 UNE   0.0000   0.0000   0.0500
+-SITE/ECCENTRICITY
+*
++TROP/DESCRIPTION
+*_________KEYWORD_____________ __VALUE(S)______________________
+ SAMPLING INTERVAL                                 300
+ SAMPLING TROP                                     300
+ ELEVATION CUTOFF ANGLE                            7.0
+ TROP MAPPING FUNCTION         VMF1
+ CONVERSION FACTORS            77.60 70.40 373900.0
+ SOLUTION_FIELDS_1             TRODRY TROWET STDDEV TGETOT STDDEV TGNTOT STDDEV
+ SOLUTION_FIELDS_2             PWV    STDDEV WMTEMP
+-TROP/DESCRIPTION
+*
++TROP/STA_COORDINATES
+*SITE PT SOLN T __STA_X_____ __STA_Y_____ __STA_Z_____ SYSTEM REMARK
+ ABMF  A    1 P  2919785.712 -5383745.073  1774604.696 IGS20_ NGL
+-TROP/STA_COORDINATES
+*
++TROP/SOLUTION
+*SITE ___EPOCH____ TROTOT _SIG TRWET TGETOT _SIG TGNTOT _SIG WVAPOR _SIG MTEMP
+ ABMF 08:246:00000 2662.8  3.4 366.7   0.57 0.37  -1.45 0.58  59.91 0.55 286.7
+ ABMF 08:246:00300 2662.7  2.9 366.6   0.57 0.33  -1.45 0.56  59.90 0.48 286.7
+-TROP/SOLUTION
+%=ENDTRO
