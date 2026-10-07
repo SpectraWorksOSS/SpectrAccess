@@ -2,6 +2,7 @@
 import importlib.util
 from pathlib import Path
 from unittest.mock import Mock
+from types import SimpleNamespace
 
 import pytest
 
@@ -26,6 +27,9 @@ def test_missing_smoke_credentials_skip(monkeypatch, capsys, name, variables):
 def test_olci_smoke_hands_over_cdse_credential(monkeypatch):
     import cdsetool.download
     import spectraccess.connectors.olci_cdse as olci
+    import spectraccess.connectors.sentinel2_cdse.connector as cdse
+    monkeypatch.setattr(cdse, "_ExplicitCredentials", lambda account, secret: SimpleNamespace(
+        username=account, password=secret))
     monkeypatch.setenv("CDSE_USERNAME", "fixture-account")
     monkeypatch.setenv("CDSE_PASSWORD", "fixture-secret")
     target = Mock(product_id="fixture-id", title="fixture.SEN3")

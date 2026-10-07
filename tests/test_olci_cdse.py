@@ -5,6 +5,7 @@ import zipfile
 from datetime import date
 from pathlib import Path
 from unittest.mock import Mock
+from types import SimpleNamespace
 
 import pytest
 import xarray as xr
@@ -15,6 +16,13 @@ from spectraccess.core.credentials import Credential, CredentialMissing, Credent
 
 ROOT = Path(__file__).parent / "fixtures/olci_cdse"
 PRODUCT = ROOT / "synthetic.SEN3"
+
+
+@pytest.fixture(autouse=True)
+def isolated_cdse_auth(monkeypatch):
+    # CDSETool exchanges tokens during construction, before download_feature.
+    monkeypatch.setattr(module, "_ExplicitCredentials", lambda account, secret: SimpleNamespace(
+        username=account, password=secret))
 
 
 def test_iwv_decoding_qa_time_and_bias_are_separate():
