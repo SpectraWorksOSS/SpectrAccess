@@ -357,7 +357,7 @@ def test_connector_run_carries_target_into_parse(monkeypatch, tmp_path):
     ("EMITL1BRAD", "002", {"primary": "RAD", "observation": "OBS"}),
     ("EMITL2AMASK", "002", {"primary": "MASK", "mask": "MASK"}),
 ])
-def test_recorded_cmr_collection_versions_and_fetch(monkeypatch, tmp_path, product, version, roles):
+def test_recorded_cmr_collection_versions_and_fetch(monkeypatch, tmp_path, requests_mock, product, version, roles):
     fixture = Path(__file__).resolve().parent / "fixtures" / "emit_cmr" / f"{product}_{version}.json"
     granule = json.loads(fixture.read_text(encoding="utf-8"))
     calls = []
@@ -367,7 +367,7 @@ def test_recorded_cmr_collection_versions_and_fetch(monkeypatch, tmp_path, produ
         return [granule]
 
     monkeypatch.setattr(module.earthaccess, "search_data", search)
-    connector = EMITEarthaccessConnector()
+    connector = EMITEarthaccessConnector(credentials=Credential("token", "fixture-token"))
     target = connector.discover(product=product.lower(), version=version, limit=1)[0]
     assert calls[0]["short_name"] == product
     assert calls[0]["version"] == version
@@ -377,23 +377,16 @@ def test_recorded_cmr_collection_versions_and_fetch(monkeypatch, tmp_path, produ
     payload = b"synthetic download through unchanged fetch path"
     checksum = hashlib.sha512(payload).hexdigest()
     target = replace(target, checksums={name: ("SHA-512", checksum) for name in target.assets})
-    downloads = []
-    logins = []
-    monkeypatch.setattr(module.earthaccess, "login", lambda **kwargs: logins.append(kwargs))
-
-    def download(urls, *, local_path, **kwargs):
-        downloads.append(urls)
-        output = Path(local_path) / Path(urls[0]).name
-        output.write_bytes(payload)
-        return [output]
-
-    monkeypatch.setattr(module.earthaccess, "download", download)
+    monkeypatch.setattr(module.earthaccess, "login", lambda **kwargs: pytest.fail("earthaccess login called"))
+    monkeypatch.setattr(module.earthaccess, "download", lambda *args, **kwargs: pytest.fail("earthaccess download called"))
+    for url in target.assets.values():
+        requests_mock.get(url, content=payload)
     for role, token in roles.items():
         output = Path(connector.fetch(target, dest=tmp_path, asset=role))
         assert f"_{token}_{version}_" in output.name
         assert output.read_bytes() == payload
-        assert downloads[-1] == [target.assets[output.name]]
-    assert len(logins) == len(roles)
+        assert requests_mock.last_request.url == target.assets[output.name]
+        assert requests_mock.last_request.headers["Authorization"] == "Bearer fixture-token"
     if product == "EMITL2ARFL" and version == "002":
         with pytest.raises(EMITDownloadError, match="matched 0 assets"):
             connector.fetch(target, dest=tmp_path, asset="mask")
