@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from contextlib import ExitStack
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -10,6 +11,13 @@ import xarray as xr
 
 if TYPE_CHECKING:
     from .connector import EMITTarget
+
+
+def normalize_provider_label(value) -> str:
+    """Mirror RefCal provider.adapters.normalize_provider_label exactly."""
+    label = value.decode("utf-8") if isinstance(value, bytes) else str(value)
+    label = re.sub(r"\s*\([^()]*\)\s*$", "", label).strip().lower()
+    return re.sub(r"[\s_-]+", "_", label)
 
 
 def _open(stack: ExitStack, path: str | Path, group: str | None = None) -> xr.Dataset:
@@ -53,11 +61,7 @@ def _v001_mask_aliases(mask: xr.DataArray, labels: xr.Dataset) -> dict[str, xr.D
         published = labels["mask_bands"]
         if published.ndim != 1 or published.size != mask.sizes["mask_bands"]:
             raise ValueError("V001 mask_bands labels do not match mask channels")
-        names = [
-            (value.decode("utf-8") if isinstance(value, bytes) else str(value))
-            .split("(", 1)[0].strip().casefold()
-            for value in published.values
-        ]
+        names = [normalize_provider_label(value) for value in published.values]
         indices = []
         for name in ("aod550", "h2o"):
             matches = [index for index, label in enumerate(names) if label == name]
