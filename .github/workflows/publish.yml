@@ -7,9 +7,7 @@ name: Release and publish to PyPI
 
 on:
   push:
-    # release/<line> branches carry maintenance releases for an older minor
-    # line; release-please reads the manifest and history of the pushed branch.
-    branches: [main, "release/**"]
+    branches: [main]
 
 permissions:
   contents: read
@@ -31,7 +29,6 @@ jobs:
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
-          target-branch: ${{ github.ref_name }}
 
   build:
     needs: release-please
