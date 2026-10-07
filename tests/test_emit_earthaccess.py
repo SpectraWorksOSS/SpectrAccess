@@ -208,7 +208,9 @@ def test_emit_extra_keeps_python_312_requirement_fail_closed():
     # This dependency must remain unmarked: on Python 3.10/3.11 pip then
     # reports earthaccess's Requires-Python >=3.12 instead of silently
     # installing spectraccess[emit] without its runtime client.
-    assert project["optional-dependencies"]["emit"] == ["earthaccess==0.18.0", "h5netcdf>=1.3"]
+    assert project["optional-dependencies"]["emit"] == [
+        "earthaccess==0.18.0", "h5netcdf>=1.3", "h5py>=3.10",
+    ]
     overview = (root / "OVERVIEW.md").read_text(encoding="utf-8")
     assert "EMIT extra requires Python 3.12 or newer" in overview
 
