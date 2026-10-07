@@ -2,7 +2,6 @@
 import importlib.util
 from pathlib import Path
 from unittest.mock import Mock
-from types import SimpleNamespace
 
 import pytest
 
@@ -25,28 +24,25 @@ def test_missing_smoke_credentials_skip(monkeypatch, capsys, name, variables):
 
 
 def test_olci_smoke_hands_over_cdse_credential(monkeypatch):
-    import cdsetool.download
+    import pandas as pd
     import spectraccess.connectors.olci_cdse as olci
-    import spectraccess.connectors.sentinel2_cdse.connector as cdse
-    monkeypatch.setattr(cdse, "_ExplicitCredentials", lambda account, secret: SimpleNamespace(
-        username=account, password=secret))
     monkeypatch.setenv("CDSE_USERNAME", "fixture-account")
     monkeypatch.setenv("CDSE_PASSWORD", "fixture-secret")
-    target = Mock(product_id="fixture-id", title="fixture.SEN3")
     connector = Mock()
-    connector.discover.return_value = [target]
+    connector.parse_canonical.return_value = pd.DataFrame({
+        "quantity": ["atmosphere_mass_content_of_water_vapor"],
+        "unc_status": ["provided"], "unc_provider": ["OLCI IWV_unc"],
+        "unc_k": [None], "unc_definition": ["Fixture provider definition"],
+    })
     def make_connector(*, credentials):
         assert credentials() == Credential("password", "fixture-secret", "fixture-account")
-        connector.credentials = credentials
         return connector
     monkeypatch.setattr(olci, "OLCICDSEConnector", make_connector)
-    def download(url, path, options):
-        assert options["credentials"].username == "fixture-account"
-        assert options["credentials"].password == "fixture-secret"
-        path.write_text("<manifest />")
-        return True
-    monkeypatch.setattr(cdsetool.download, "download_file", download)
     smoke.smoke_olci_cdse()
+    target = connector.fetch.call_args.args[0]
+    assert target.product_id == "35dc0868-b343-426d-bd25-5ddc1a0bbd59"
+    connector.parse_canonical.assert_called_once_with(
+        connector.fetch.return_value, bbox=(80.3, 16.3, 80.6, 16.6), include_flagged=True)
 
 
 def test_pressure_smoke_hands_over_ads_credential(monkeypatch):

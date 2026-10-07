@@ -27,10 +27,11 @@ SNOW_ICE, SATURATED, SUSPECT and WVFAIL pixels. `include_flagged=True` preserves
 these finite values with `qa.accepted=False`. Fill values are always omitted.
 Full flag definitions and active names accompany each row.
 
-`IWV_err` is carried as `unc_value` with `unc_k=1`. `unc_definition` quotes
-the product format specification: "Uncertainty estimate for the Integrated
-water vapour column above the current pixel" (section 4.2.1.1; issue 2.4
-names the variable `IWV_unc`). Values are in kg m-2.
+`IWV_unc` is carried as `unc_value`, with its NetCDF `long_name` retained
+in `unc_definition`. The product format specification (section 4.2.1.1;
+issue 2.4) describes it as "Uncertainty estimate for the Integrated water
+vapour column above the current pixel". Values are in kg m-2. The provider
+does not publish a coverage factor for this product; `unc_k` remains null.
 The cited cloud-free land validation found a positive wet bias of 7 to 10
 percent. `published_bias` retains that range, reference and scope with
 `applied=False`; observations are never corrected using that range.

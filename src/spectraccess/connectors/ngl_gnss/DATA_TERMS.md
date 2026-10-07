@@ -29,7 +29,8 @@ Rows contain `zenith_total_delay` and available `tropospheric_gradient_north`
 and `tropospheric_gradient_east`, in metres. No conversion to water vapour is
 performed. The README calls the reported sigmas "formal error columns (_SIG)";
 `unc_definition` closely paraphrases this as "Formal error columns (_SIG) for
-the tropospheric estimates". These errors are `provided` with k=1. The
+the tropospheric estimates". These errors are `provided`; the source does not publish a coverage factor,
+so `unc_k` is null. The
 five-minute interval is sampling cadence, retained in QA.
 
 The README warns that TGETOT/TGNTOT columns and their formal errors are

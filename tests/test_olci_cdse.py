@@ -30,7 +30,9 @@ def test_iwv_decoding_qa_time_and_bias_are_separate():
     assert len(frame) == 3
     assert frame.value.iloc[0] == pytest.approx(20.1)
     assert frame.unc_value.iloc[0] == pytest.approx(.6)
-    assert frame.unc_k.iloc[0] == 1
+    assert frame.unc_k.isna().all()
+    assert frame.unc_provider.iloc[0] == "OLCI IWV_unc"
+    assert frame.unc_definition.iloc[0] == "Uncertainty estimate for the Integrated water vapour column above the current pixel"
     assert frame.units.eq("kg m-2").all()
     assert frame.published_bias.iloc[0]["relative_range"] == [.07,.10]
     assert frame.published_bias.iloc[0]["applied"] is False
@@ -73,15 +75,29 @@ def test_fetch_uses_byoc_and_filtered_maintained_client(monkeypatch,tmp_path):
     monkeypatch.setattr(module,"query_features",Mock(return_value=[feature]))
     connector = OLCICDSEConnector()
     target = connector.discover(bbox=(4,51,5,52),start=date(2024,5,1),end=date(2024,5,1))[0]
-    def download(raw,path,options):
+    import cdsetool.download as client
+    selected = []
+    downloaded = []
+    real_filter = client.filter_files
+    def select(manifest, pattern, exclude=False):
+        result = real_filter(manifest, pattern, exclude)
+        selected.extend(result)
+        return result
+    monkeypatch.setattr(client, "filter_files", select)
+    def download(url, path, options):
         assert options["credentials"].username == "fixture-account"
         assert options["credentials"].password == "fixture-secret"
-        assert "filter_pattern" in options
-        shutil.copytree(PRODUCT,Path(path)/"synthetic.SEN3")
-        return "synthetic.SEN3"
+        filename = path.name
+        downloaded.append(filename)
+        path.write_bytes((PRODUCT / filename).read_bytes())
+        return True
     credentials = Credential("password", "fixture-secret", "fixture-account")
-    monkeypatch.setattr(module,"download_feature",download)
+    monkeypatch.setattr(client, "download_file", download)
+    monkeypatch.setattr(module, "download_file", download)
     path = connector.fetch(target,dest=tmp_path,credentials=credentials)
+    assert sorted(p.name for p in selected) == sorted(module._FILES[:4])
+    assert sorted(p.name for p in path.path.iterdir()) == sorted(module._FILES)
+    assert len(downloaded) == 9  # Four manifest-based selections, plus retained manifest.
     frame = connector.parse(path,target=target)
     assert frame.source_url.eq(target.source_url).all()
     assert frame.platform.eq("S3A").all()
@@ -136,3 +152,30 @@ def test_download_rejected_credentials_are_classified(monkeypatch, tmp_path):
         connector.fetch(target, dest=tmp_path)
     assert "fixture-secret" not in str(error.value)
     assert error.value.__context__ is None
+
+
+def test_provider_uncertainty_definition_is_preserved(tmp_path):
+    product = tmp_path / "synthetic.SEN3"
+    shutil.copytree(PRODUCT, product)
+    with xr.open_dataset(product / "iwv.nc") as ds:
+        modified = ds.load()
+    modified.IWV_unc.attrs["long_name"] = "Fixture provider's exact uncertainty definition"
+    modified.to_netcdf(product / "iwv.nc", engine="h5netcdf")
+    frame = OLCICDSEConnector().parse(str(product))
+    assert frame.unc_definition.eq("Fixture provider's exact uncertainty definition").all()
+    assert frame.unc_value.iloc[0] == pytest.approx(.6)
+    assert frame.unc_k.isna().all()
+
+
+def test_unpublished_uncertainty_stays_unknown(tmp_path):
+    product = tmp_path / "synthetic.SEN3"
+    shutil.copytree(PRODUCT, product)
+    with xr.open_dataset(product / "iwv.nc") as ds:
+        modified = ds.drop_vars("IWV_unc").load()
+    modified.to_netcdf(product / "iwv.nc", engine="h5netcdf")
+    frame = OLCICDSEConnector().parse(str(product))
+    assert len(frame) == 3
+    assert frame.unc_value.isna().all()
+    assert frame.unc_status.eq("unknown").all()
+    assert frame.unc_definition.isna().all()
+    assert frame.unc_k.isna().all()

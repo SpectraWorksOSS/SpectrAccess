@@ -5,7 +5,6 @@ import sys
 import tempfile
 from datetime import date, datetime, timezone
 from pathlib import Path
-from xml.etree import ElementTree
 
 import requests
 from spectraccess.core.credentials import Credential
@@ -334,36 +333,31 @@ def smoke_olci_cdse() -> None:
     if not os.environ.get("CDSE_USERNAME") or not os.environ.get("CDSE_PASSWORD"):
         print("OLCI CDSE smoke SKIP: CDSE_USERNAME/CDSE_PASSWORD not set")
         return
-    from spectraccess.core.credentials import resolve
-    from cdsetool.download import download_file
     from spectraccess.connectors.olci_cdse import OLCICDSEConnector
-    from spectraccess.connectors.sentinel2_cdse.connector import _CaptureLogger, _ExplicitCredentials
+    from spectraccess.connectors.olci_cdse.connector import OLCITarget, PRODUCT_URL, COLLECTION
 
+    # Public CDSE catalogue metadata: a 129 MB LFR product, 23% land and
+    # 15% cloud cover. Only IWV, three annotations and the manifest are fetched.
+    product_id = "35dc0868-b343-426d-bd25-5ddc1a0bbd59"
+    title = "S3B_OL_2_LFR____20240501T042137_20240501T042437_20250705T000836_0179_092_261_2700_ESA_R_NT_003.SEN3"
+    target = OLCITarget(product_id, title, PRODUCT_URL.format(product_id=product_id),
+                        datetime.now(timezone.utc), {"Id": product_id, "Name": title, "Collection": COLLECTION})
     connector = OLCICDSEConnector(credentials=lambda: Credential(
         "password", os.environ["CDSE_PASSWORD"], os.environ["CDSE_USERNAME"]))
-    targets = connector.discover(
-        bbox=(4.0,51.5,5.0,52.5), start=date(2024,5,1), end=date(2024,5,2), limit=1,
-    )
-    if not targets:
-        raise RuntimeError("OLCI CDSE discovery found no pinned LFR product")
-    target = targets[0]
-    # Authenticate on a tiny manifest. Full IWV/annotation downloads are too
-    # large for the weekly smoke; pixel parsing is covered by offline fixtures.
-    url = (f"https://download.dataspace.copernicus.eu/odata/v1/Products({target.product_id})"
-           f"/Nodes({target.title})/Nodes(xfdumanifest.xml)/$value")
-    log = _CaptureLogger()
     with tempfile.TemporaryDirectory() as tmp:
-        manifest = Path(tmp)/"xfdumanifest.xml"
-        try:
-            credential = resolve("cdse", connector.credentials)
-            ok = download_file(url,manifest,{"logger":log, "credentials":_ExplicitCredentials(
-                credential.account, credential.secret)})
-        except Exception:
-            raise RuntimeError("OLCI authenticated manifest smoke failed") from None
-        if not ok or log.errors or not manifest.exists() or not manifest.stat().st_size:
-            raise RuntimeError("OLCI authenticated manifest smoke returned no data")
-        ElementTree.parse(manifest)
-    print(f"OLCI CDSE: catalogue and authenticated manifest passed for {target.title}")
+        result = connector.fetch(target, dest=tmp)
+        # Bound the canonical sample to a small land area within the granule.
+        # Flagged finite values retain their provider QA for this transport proof.
+        frame = connector.parse_canonical(result, bbox=(80.3, 16.3, 80.6, 16.6), include_flagged=True)
+        if frame.empty or not frame.quantity.eq("atmosphere_mass_content_of_water_vapor").all():
+            raise RuntimeError("OLCI smoke returned no canonical IWV rows")
+        provided = frame.loc[frame.unc_status == "provided"]
+        if provided.empty or not provided.unc_provider.eq("OLCI IWV_unc").all() or frame.unc_k.notna().any():
+            raise RuntimeError("OLCI smoke did not preserve the published uncertainty contract")
+        if provided.unc_definition.isna().any():
+            raise RuntimeError("OLCI smoke returned no provider uncertainty definition")
+        print(f"OLCI CDSE: filtered fetch and parse passed for {target.title}: "
+              f"{len(frame)} IWV pixels, {len(provided)} with published uncertainty")
 
 
 def smoke_ngl_gnss() -> None:

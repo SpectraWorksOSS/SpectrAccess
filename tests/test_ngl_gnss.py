@@ -13,6 +13,7 @@ FIXTURE = Path(__file__).parent / "fixtures/ngl_gnss/ABMF.2008.246.trop"
 
 def test_real_sinex_extract_values_errors_location_and_gradient_warning():
     frame = parse_sinex(FIXTURE.read_text())
+    assert frame.unc_k.isna().all()
     assert len(frame) == 6
     ztd = frame.loc[frame.quantity == "zenith_total_delay"].iloc[0]
     assert ztd.value == pytest.approx(2.6628)

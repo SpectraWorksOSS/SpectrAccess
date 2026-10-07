@@ -29,7 +29,7 @@ import pandas as pd
 import xarray as xr
 
 try:
-    from cdsetool.download import download_feature
+    from cdsetool.download import download_feature, download_file
     from cdsetool.query import query_features
 except ImportError as exc:  # pragma: no cover - optional installation boundary
     raise ImportError("OLCICDSEConnector requires pip install 'spectraccess[cdse]'") from exc
@@ -129,20 +129,39 @@ class OLCICDSEConnector(Connector):
         path = Path(dest)
         path.mkdir(parents=True, exist_ok=True)
         log = _CaptureLogger()
-        options = {"logger": log, "filter_pattern": r"(?:iwv|geo_coordinates|time_coordinates|lqsf)\.nc$"}
         failure = None
+        product = path / target.title
         try:
-            options["credentials"] = _ExplicitCredentials(credential.account, credential.secret)
-            name = download_feature(deepcopy(dict(target.raw)), str(path), options)
+            client_credentials = _ExplicitCredentials(credential.account, credential.secret)
+            # CDSETool takes one filename glob per call. Separate staging dirs
+            # avoid its existing-product shortcut when fetching the next asset.
+            with tempfile.TemporaryDirectory(dir=path) as tmp:
+                staged = Path(tmp) / target.title
+                staged.mkdir()
+                for filename in _FILES[:4]:
+                    asset_dest = Path(tmp) / filename
+                    asset_dest.mkdir()
+                    options = {"logger": log, "credentials": client_credentials,
+                               "filter_pattern": filename, "download_attempts": 3}
+                    name = download_feature(deepcopy(dict(target.raw)), str(asset_dest), options)
+                    asset = asset_dest / name / filename if name else None
+                    if log.errors or asset is None or not asset.is_file():
+                        raise RuntimeError(f"OLCI download is missing required {filename}")
+                    asset.replace(staged / filename)
+                # CDSETool uses the manifest for selection but does not retain it.
+                manifest_url = (f"https://download.dataspace.copernicus.eu/odata/v1/Products({target.product_id})"
+                                f"/Nodes({target.title})/Nodes(xfdumanifest.xml)/$value")
+                if not download_file(manifest_url, staged / _FILES[4], {
+                    "logger": log, "credentials": client_credentials, "download_attempts": 3,
+                }) or log.errors:
+                    raise RuntimeError("OLCI manifest download failed")
+                product.mkdir(exist_ok=True)
+                for filename in _FILES:
+                    (staged / filename).replace(product / filename)
         except Exception as exc:
             failure = provider_error("cdse", source, exc, credential, RuntimeError)
         if failure is not None:
             raise failure from None
-        if log.errors or not name or not (path / name).is_dir():
-            raise RuntimeError("OLCI CDSE download produced no complete product directory")
-        product = path / name
-        if any(not (product / n).is_file() for n in _FILES[:4]):
-            raise RuntimeError("OLCI download is missing required IWV annotation files")
         return OLCIResult(product, target, datetime.now(timezone.utc))
 
     def _parse_kwargs_for(self, target: OLCITarget) -> dict[str, object]:
@@ -219,9 +238,9 @@ def _parse_product(path: Path, *, target: OLCITarget | None, source_url: str | N
         stamp = times["time_stamp"]
         if stamp.size != value.shape[0] or not np.issubdtype(stamp.dtype, np.datetime64):
             raise ValueError("OLCI line time_stamp must decode to one datetime per row")
-        error = iwv.get("IWV_err")
+        error = iwv.get("IWV_unc")
         if error is not None and error.shape != value.shape:
-            raise ValueError("OLCI IWV_err shape does not match IWV")
+            raise ValueError("OLCI IWV_unc shape does not match IWV")
         algorithm = _manifest_version(path / "xfdumanifest.xml")
         attrs = {} if target is None else {a["Name"]: a["Value"] for a in target.raw.get("Attributes", [])}
         algorithm = attrs.get("processorVersion") or algorithm
@@ -253,13 +272,13 @@ def _parse_product(path: Path, *, target: OLCITarget | None, source_url: str | N
                        quantity="atmosphere_mass_content_of_water_vapor", value=v, units="kg m-2",
                        latitude=lat, longitude=lon, support_kind="pixel",
                        unc_value=sigma, unc_status="provided" if sigma is not None else "unknown",
-                       unc_k=1 if sigma is not None else None,
-                       unc_provider="OLCI IWV_err" if sigma is not None else None,
+                       unc_k=None,
+                       unc_provider="OLCI IWV_unc" if sigma is not None else None,
                        source="sentinel-3-olci-l2-iwv", source_agency="European Union / ESA",
                        source_url=target.source_url if target else source_url,
                        retrieved_at=retrieved_at, algorithm_version=algorithm,
                        collection_version=collection,
-                       unc_definition="Uncertainty estimate for the Integrated water vapour column above the current pixel",
+                       unc_definition=(error.attrs.get("long_name") if error is not None else None),
                        published_bias=deepcopy(WET_BIAS), product_type=PRODUCT_TYPE,
                        pixel_row=i, pixel_column=j,
                        qa={"value": flag_value, "flags": active, "accepted": accepted,

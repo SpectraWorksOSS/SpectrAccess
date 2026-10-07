@@ -234,7 +234,7 @@ def parse_sinex(text: str, *, station: Station | None = None, source_url: str | 
                        longitude=location.longitude, elevation_m=location.height_m,
                        quantity=quantity, value=value / 1000, units="m",
                        unc_value=sigma, unc_status="provided" if sigma is not None else "unknown",
-                       unc_k=1 if sigma is not None else None,
+                       unc_k=None,
                        unc_provider="NGL formal error" if sigma is not None else None,
                        source="ngl-gnss", source_agency="Nevada Geodetic Laboratory",
                        source_url=source_url, retrieved_at=retrieved_at,
