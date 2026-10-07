@@ -4,7 +4,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from spectraccess.connectors.cams import CAMSConnector, CAMSCredentialsError, CAMSProviderError, parse_surface_pressure
+from spectraccess.connectors.cams import CAMSConnector, CAMSProviderError, parse_surface_pressure
 from spectraccess.connectors.cams import connector as module
 from spectraccess.core.credentials import Credential, CredentialMissing, CredentialRejected
 
