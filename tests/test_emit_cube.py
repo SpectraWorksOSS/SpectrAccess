@@ -12,12 +12,40 @@ pytest.importorskip("h5netcdf")
 from spectraccess.connectors.emit_earthaccess import EMITEarthaccessConnector, read_cube
 from test_emit_earthaccess import _granule
 from spectraccess.connectors.emit_earthaccess.connector import _target_from_granule
+from spectraccess.connectors.emit_earthaccess.cube import normalize_provider_label
 
 
 V001_MASK_LABELS = [
     "Cloud flag", "Cirrus flag", "Standing water flag", "Spacecraft flag",
     "Dilated cloud mask", "AOD550", "H2O (g cm-2)", "Aggregate bad data flag",
 ]
+
+# Verbatim NASA OBS writer labels:
+# https://github.com/emit-sds/emit-sds-l1b-geo/blob/main/python/emit/emit_obs.py
+OBS_LABELS = [
+    "Path length (sensor-to-ground in meters)",
+    "To-sensor azimuth (0 to 360 degrees CW from N)",
+    "To-sensor zenith (0 to 90 degrees from zenith)",
+    "To-sun azimuth (0 to 360 degrees CW from N)",
+    "To-sun zenith (0 to 90 degrees from zenith)",
+    "Solar phase (degrees between to-sensor and to-sun vectors in principal plane)",
+    "Slope (local surface slope as derived from DEM in degrees) ",
+    "Aspect (local surface aspect 0 to 360 degrees clockwise from N)",
+    "Cosine(i) (apparent local illumination factor based on DEM slope and aspect and to sun vector)",
+    "UTC Time (decimal hours for mid-line pixels)",
+    "Earth-sun distance (AU)",
+]
+
+
+@pytest.mark.parametrize("raw, expected", [
+    (b" To-sun Zenith (0 to 90 degrees from zenith) ", "to_sun_zenith"),
+    ("CLOUD__Flag (0 clear, 1 cloud)", "cloud_flag"),
+    ("Dilated-cloud mask", "dilated_cloud_mask"),
+    (" AOD550 ", "aod550"), ("H2O (g cm-2)", "h2o"),
+    ("Cosine(i) (illumination factor)", "cosine(i)"),
+])
+def test_provider_label_normalizer_contract(raw, expected):
+    assert normalize_provider_label(raw) == expected
 
 
 def write_product(path, version="001", variable="reflectance", bands=10, offset=0,
@@ -43,10 +71,11 @@ def write_product(path, version="001", variable="reflectance", bands=10, offset=
     else:
         names = [f"channel_{i}" for i in range(bands)]
         if variable == "obs":
-            names[:4] = ["Solar Zenith", "Solar Azimuth", "View Zenith", "View Azimuth"]
+            names = OBS_LABELS
         elif variable == "mask" and version == "001":
             names = V001_MASK_LABELS
-        params = xr.Dataset({variable + "_bands": ("bands", names)})
+        label_name = "observation_bands" if variable == "obs" else variable + "_bands"
+        params = xr.Dataset({label_name: ("bands", names)})
     if variable != "mask" or mask_labels:
         params.to_netcdf(path, group="sensor_band_parameters", mode="a", engine="h5netcdf")
     if variable == "reflectance":
@@ -67,7 +96,7 @@ def test_raw_cube(version, tmp_path):
     rfl = write_product(tmp_path / "rfl.nc", version)
     unc = write_product(tmp_path / "unc.nc", version, "reflectance_uncertainty")
     mask = write_product(tmp_path / "mask.nc", version, "mask", bands=8 if version == "001" else 6)
-    obs = write_product(tmp_path / "obs.nc", version, "obs", bands=4)
+    obs = write_product(tmp_path / "obs.nc", version, "obs", bands=11)
     with read_cube(rfl, uncertainty=unc, mask=mask, observation=obs) as cube:
         assert cube.reflectance.dims == ("downtrack", "crosstrack", "bands")
         assert cube.reflectance_uncertainty.dims == cube.reflectance.dims
@@ -84,7 +113,7 @@ def test_raw_cube(version, tmp_path):
         assert cube.wavelengths.attrs["units"] == "nm"
         assert cube.lat.shape == cube.lon.shape == (4, 3)
         assert cube.obs.dims == ("downtrack", "crosstrack", "observation_bands")
-        assert cube.obs_obs_bands.values[0] == "Solar Zenith"
+        np.testing.assert_array_equal(cube.obs_observation_bands, OBS_LABELS)
         assert cube.obs.attrs["units"] == "degree"
         assert np.isnan(cube["mask"][0, 0, 0])
         assert cube["mask"][0, 0, 1] == pytest.approx(-0.01)
