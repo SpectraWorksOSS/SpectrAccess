@@ -50,7 +50,7 @@ def test_pressure_smoke_hands_over_ads_credential(monkeypatch):
     import spectraccess.connectors.cams as cams
     monkeypatch.setenv("ADS_TOKEN", "fixture-token")
     connector = Mock()
-    connector.parse_surface_pressure.return_value = pd.DataFrame({"value": [101000.]})
+    connector.parse_surface_pressure.return_value = pd.DataFrame({"value": [101000.], "quantity": ["surface_air_pressure"]})
     def make_connector(*, source, credentials):
         assert source == "ads"
         assert credentials() == Credential("token", "fixture-token")
