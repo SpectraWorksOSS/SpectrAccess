@@ -398,9 +398,6 @@ class VIIRSConnector(Connector):
             collection_version=target.version if target else None, filename_collection=_identity(path)['collection'],
             qa=qa, provider_metadata=attrs, native_data_path=str(path))])
 
-    def _parse_kwargs_for(self, target):
-        return {'target': target}
-
     def _canonical_kwargs_for(self, target):
         return {'target': target}
 

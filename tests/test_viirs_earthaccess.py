@@ -296,6 +296,65 @@ def test_real_earthaccess_discover_pair_fetch_read(fixtures, requests_mock, tmp_
     np.testing.assert_equal(ds.M09.attrs['provider_attributes']['flag_values'], [65532, 65533, 65534])
 
 
+@pytest.mark.parametrize('product,field', [
+    ('VNP02MOD', 'M09'),
+    ('CLDMSK_L2_VIIRS_SNPP', 'Clear_Sky_Confidence'),
+    ('CLDPROP_L2_VIIRS_SNPP', 'Cloud_Top_Temperature'),
+])
+@pytest.mark.parametrize('canonical', [False, True])
+def test_run_native_and_canonical(fixtures, requests_mock, tmp_path, product, field, canonical):
+    """Inherited run with real discover/fetch/parse/read; only HTTP is mocked."""
+    image = next(fixtures.glob(product + '.*.nc'))
+    paths = (image, pair(fixtures).paths[1]) if product == 'VNP02MOD' else (image,)
+    records = {p.name.split('.')[0]: granule(p) for p in paths}
+    queries = []
+    def cmr_response(request, context):
+        short_name = next(value[0].upper() for key, value in request.qs.items()
+                          if key.removesuffix('[]') == 'short_name')
+        queries.append(short_name)
+        context.headers['CMR-Hits'] = '1'
+        return {'hits': 1, 'took': 1,
+                'items': [] if request.qs['page_size'] == ['0'] else [records[short_name]]}
+    requests_mock.get(re.compile(r'https://cmr\.earthdata\.nasa\.gov/search/granules\.umm_json.*'),
+                      json=cmr_response)
+    for path in paths:
+        record = records[path.name.split('.')[0]]
+        requests_mock.get(record['umm']['RelatedUrls'][0]['URL'], content=path.read_bytes())
+    connector = VIIRSConnector(credentials=Credential('password', 'fixture-secret', 'fixture-user'))
+    parse_kwargs = {'bbox': (2, 51, 4, 52)}
+    if not canonical:
+        parse_kwargs['bands' if product == 'VNP02MOD' else 'variables'] = (field,)
+    output = connector.run(
+        bbox=(0, 50, 7, 53), start=datetime(2024, 5, 1), end=datetime(2024, 5, 2),
+        products=(product,), platforms=('SNPP',), fetch_kwargs={'dest': tmp_path},
+        canonical=canonical, parse_kwargs=parse_kwargs,
+    )
+    assert queries.count(product) == 2  # Real CMR hits + records queries.
+    if product == 'VNP02MOD':
+        assert queries.count('VNP03MOD') == 2
+    assert {p.name for p in tmp_path.glob('*.nc')} == {p.name for p in paths}
+    assert not list(tmp_path.glob('*.part'))
+    target = module._target(records[product], product, module.COLLECTIONS[product])
+    if canonical:
+        validate(output)
+        assert len(output) == 1
+        row = output.iloc[0]
+        assert row.product_id == target.product_id
+        assert row.source_url == target.source_url
+        assert row.footprint_geometry == target.footprint_geometry
+        assert row.collection_version == target.version
+        assert row.qa['QualityFlag'] == 'provider verdict'
+        assert row.qa['CMRDayNightFlag'] == target.day_night_flag
+        assert connector._canonical_kwargs_for(target) == {'target': target}
+    else:
+        assert isinstance(output, xr.Dataset)
+        assert output[field].shape == (16, 3)
+        assert output[field].attrs['provider_file'] == image.name
+        assert output.attrs['native_geometry'] and not output.attrs['resampled']
+        assert output.scan_start_time.size == 1
+        assert {'latitude', 'longitude'} <= set(output[field].coords)
+
+
 def test_band_selection_diagnostic(fixtures):
     with pytest.raises(ValueError) as error:
         VIIRSConnector().read(pair(fixtures), bands=('M09', 'M10', 'M16'))
