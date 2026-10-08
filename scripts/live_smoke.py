@@ -424,26 +424,28 @@ def smoke_viirs_earthaccess() -> None:
         return
     from spectraccess.connectors.viirs_earthaccess import VIIRSConnector
 
-    # Public CMR pin checked at build: 70,456,152 + 49,701,203 bytes.
-    pin = 'G2962669872-LAADS'
-    bbox = (15.0, -36.0, 15.2, -35.8)
+    # Public CMR daytime partial swath: 18,557,651 + 3,708,627 bytes.
+    pin = 'G2120969416-LAADS'
+    bbox = (-99.1, -8.4, -98.9, -8.2)
     connector = VIIRSConnector(credentials=lambda: Credential(
         'password', os.environ['EARTHDATA_PASSWORD'], os.environ['EARTHDATA_USERNAME']))
     print('VIIRS Earthdata: discover', flush=True)
-    targets = connector.discover(bbox=bbox, start=datetime(2024, 5, 1, 0, 0, 1, tzinfo=timezone.utc),
-        end=datetime(2024, 5, 1, 0, 5, 59, tzinfo=timezone.utc), products=('MOD',), platforms=('SNPP',))
+    targets = connector.discover(bbox=bbox, start=datetime(2012, 2, 2, 20, 6, 1, tzinfo=timezone.utc),
+        end=datetime(2012, 2, 2, 20, 11, 59, tzinfo=timezone.utc), products=('MOD',), platforms=('SNPP',))
     target = next((t for t in targets if t.product_id == pin), None)
     if target is None:
         raise RuntimeError('pinned VIIRS product absent from CMR discovery')
+    if target.day_night_flag != 'Day':
+        raise RuntimeError(f'VIIRS M09 smoke requires CMR DayNightFlag=Day; found {target.day_night_flag}')
     with tempfile.TemporaryDirectory() as tmp:
         print('VIIRS Earthdata: fetch matching 02/03 pair', flush=True)
         result = connector.fetch(target, dest=tmp, max_bytes=150_000_000)
-        if result.targets[1].product_id != 'G2962643279-LAADS':
+        if result.targets[1].product_id != 'G2120964460-LAADS':
             raise RuntimeError('VIIRS geolocation pin changed')
         print('VIIRS Earthdata: read native window', flush=True)
         ds = connector.read(result, bbox=bbox, bands=('M09', 'M15', 'M16'))
         frame = connector.parse_canonical(result)
-        expected = ('M09', 'M15', 'M16', 'M09_quality_flags', 'scan_start_time',
+        expected = ('M09', 'M15', 'M16', 'M09_quality_flags', 'M15_quality_flags', 'M16_quality_flags', 'scan_start_time',
                     'scan_index', 'latitude', 'longitude', 'solar_zenith', 'sensor_zenith')
         if frame.empty or any(name not in ds or ds[name].size == 0 for name in expected):
             raise RuntimeError('VIIRS real fetch/read missing bands, flags, scan time or geometry')

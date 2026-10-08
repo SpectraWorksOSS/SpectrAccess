@@ -43,12 +43,17 @@ _HOSTS = {"data.laadsdaac.earthdatacloud.nasa.gov", "ladsweb.modaps.eosdis.nasa.
 _THERMAL_BANDS = {'M12', 'M13', 'M14', 'M15', 'M16', 'I04', 'I05'}
 
 
-def _selection_error(path, group, fields, reason):
-    # Only identifiers: no provider values or arrays enter this diagnostic.
+def _selection_error(path, group, fields, reason, target=None):
+    # Identifiers and provider mode only; no scientific values or arrays.
     with netCDF4.Dataset(path) as root:
         product = root.getncattr('ShortName') if 'ShortName' in root.ncattrs() else _identity(path)['product']
+        mode = root.getncattr('DayNightFlag') if 'DayNightFlag' in root.ncattrs() else None
+    source = 'file' if mode is not None else 'CMR'
+    if mode is None and target is not None:
+        mode = target.day_night_flag
+    mode_text = f"DayNightFlag={mode}; day_night_source={source}" if mode is not None else 'DayNightFlag=unpublished'
     return ValueError(f"{reason}; product={product}; "
-                      f"file={path.name}; group={group}; "
+                      f"file={path.name}; group={group}; {mode_text}; "
                       f"found_variables={sorted(fields)}")
 
 
@@ -77,6 +82,7 @@ class VIIRSTarget:
     checksums: Mapping[str, tuple[str, str]]
     retrieved_at: datetime
     raw: Mapping = field(repr=False)
+    day_night_flag: str | None = None
 
 
 @dataclass(frozen=True)
@@ -157,7 +163,8 @@ def _target(granule, product, version):
         _as_start(datetime.fromisoformat(temporal['BeginningDateTime'].replace('Z', '+00:00'))),
         _as_end(datetime.fromisoformat(temporal['EndingDateTime'].replace('Z', '+00:00'))),
         _footprint(umm), 'https://cmr.earthdata.nasa.gov/search/granules.umm_json?concept_id=' + meta['concept-id'],
-        urls[0], int(size) if size is not None else None, checksums, datetime.now(timezone.utc), raw)
+        urls[0], int(size) if size is not None else None, checksums, datetime.now(timezone.utc), raw,
+        umm.get('DataGranule', {}).get('DayNightFlag'))
 
 
 class VIIRSConnector(Connector):
@@ -265,6 +272,7 @@ class VIIRSConnector(Connector):
         if len(science) != 1:
             raise ValueError("read expects one L1B pair or one cloud granule")
         image = science[0]
+        target = next((t for t in raw.targets if t.title == image.name), None) if isinstance(raw, VIIRSResult) else None
         ident = _identity(image)
         cloud = ident['product'].startswith('CLD')
         geo = image if cloud else next((p for p in paths if p.name.startswith(ident['product'].replace('02', '03', 1) + '.')), None)
@@ -300,7 +308,7 @@ class VIIRSConnector(Connector):
                 if any(n not in available for n in selected):
                     missing = sorted(set(selected) - set(available))
                     raise _selection_error(image, group, fields,
-                                           f"bands must name published I/M observation bands; missing={missing}")
+                                           f"bands must name published I/M observation bands; missing={missing}", target)
             for name in selected:
                 if name not in encoded:
                     raise _selection_error(image, group, fields, f"missing provider variable {name}")
@@ -342,7 +350,7 @@ class VIIRSConnector(Connector):
 
     def parse_canonical(self, raw, *, target=None, bbox=None):
         paths = _paths(raw)
-        if isinstance(raw, VIIRSResult):
+        if isinstance(raw, VIIRSResult) and raw.targets:
             target = raw.targets[0]
         science = [p for p in paths if not re.match(r'V(?:NP|J[12])03', p.name)]
         if len(science) != 1:
@@ -372,6 +380,11 @@ class VIIRSConnector(Connector):
                 if parsed != expected:
                     raise ValueError("local acquisition interval contradicts discovered target")
         qa = deepcopy(target.raw.get('umm', {}).get('DataQuality', {})) if target else {}
+        mode = attrs.get('DayNightFlag')
+        if mode is not None:
+            qa['DayNightFlag'] = mode
+        if target is not None and target.day_night_flag is not None:
+            qa['CMRDayNightFlag'] = target.day_night_flag
         qa.update({k: v for k, v in attrs.items() if k in ('QAPercentMissingData', 'QAPercentOutofBoundsData', 'QAPercentInterpolatedData')})
         return frame_from_records([dict(time=start, valid_time=start, integration_start=start, integration_end=end,
             footprint_geometry=target.footprint_geometry if target else None, support_kind='swath',

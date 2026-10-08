@@ -50,7 +50,7 @@ def granule(path):
                                            'EndingDateTime': '2024-05-01T00:06:00Z'}},
         'RelatedUrls': [{'Type': 'GET DATA', 'URL': f'https://data.laadsdaac.earthdatacloud.nasa.gov/prod-lads/{product}/{name}'},
                         {'Type': 'GET DATA VIA DIRECT ACCESS', 'URL': f's3://prod-lads/{product}/{name}'}],
-        'DataGranule': {'Identifiers': [{'Identifier': name, 'IdentifierType': 'ProducerGranuleId'}],
+        'DataGranule': {'DayNightFlag': 'Day', 'Identifiers': [{'Identifier': name, 'IdentifierType': 'ProducerGranuleId'}],
             'ArchiveAndDistributionInformation': [{'Name': 'Not provided', 'SizeUnit': 'MB',
             'Size': path.stat().st_size / (1024 * 1024), 'SizeInBytes': path.stat().st_size,
             'Checksum': {'Algorithm': 'MD5', 'Value': hashlib.md5(path.read_bytes()).hexdigest()}}]},
@@ -136,7 +136,8 @@ def test_canonical(fixtures):
     assert frame.support_kind.iloc[0] == 'swath'
     assert frame.collection_version.iloc[0] == '2'
     assert frame.algorithm_version.iloc[0] == '3.0.30'
-    assert frame.qa.iloc[0] == {'QualityFlag': 'provider verdict'}
+    assert target.day_night_flag == 'Day'
+    assert frame.qa.iloc[0] == {'QualityFlag': 'provider verdict', 'DayNightFlag': 'Day', 'CMRDayNightFlag': 'Day'}
     assert frame.footprint_geometry.iloc[0]['type'] == 'Polygon'
     assert 'UI^2' in frame.unc_definition.iloc[0]
     assert frame.unc_value.isna().all() and frame.unc_k.isna().all()
@@ -304,6 +305,77 @@ def test_band_selection_diagnostic(fixtures):
     assert 'missing=[' in message and "'M10'" in message
     assert 'found_variables=' in message and "'M09'" in message and "'M16'" in message
     assert '65535' not in message and '988761610' not in message
+    assert 'DayNightFlag=Day' in message
+
+
+@pytest.mark.parametrize('file_mode', [True, False])
+def test_night_band_selection_and_provider_mode(tmp_path, file_mode):
+    root = generate(tmp_path, night=True)
+    paths = pair(root).paths
+    record = granule(paths[0])
+    record['umm']['DataGranule']['DayNightFlag'] = 'Night'
+    target = module._target(record, 'VNP02MOD', '2')
+    assert target.day_night_flag == 'Night'
+    if not file_mode:
+        with netCDF4.Dataset(paths[0], 'a') as image:
+            image.delncattr('DayNightFlag')
+    result = VIIRSResult(paths, (target,), datetime.now(timezone.utc))
+    with pytest.raises(ValueError) as error:
+        VIIRSConnector().read(result, bands=('M09', 'M15', 'M16'))
+    message = str(error.value)
+    assert "missing=['M09']" in message
+    assert 'DayNightFlag=Night' in message
+    assert 'day_night_source=' + ('file' if file_mode else 'CMR') in message
+    assert 'found_variables=' in message and "'M07'" in message
+    assert '65535' not in message and '988761610' not in message
+    if not file_mode:
+        fallback_frame = VIIRSConnector().parse_canonical(result)
+        assert fallback_frame.qa.iloc[0]['CMRDayNightFlag'] == 'Night'
+        assert 'DayNightFlag' not in fallback_frame.qa.iloc[0]
+        # Satpy requires NASA's global mode attribute for measurement reads.
+        # This case exercises only the diagnostic/canonical CMR fallback.
+        return
+    published = {'M07', 'M08', 'M10', 'M11', 'M12', 'M13', 'M14', 'M15', 'M16'}
+    inventory = published | {b + suffix for b in published for suffix in ('_quality_flags', '_uncert_index')}
+    inventory |= {b + '_brightness_temperature_lut' for b in published & module._THERMAL_BANDS}
+    with netCDF4.Dataset(paths[0]) as image:
+        assert set(image.groups['observation_data'].variables) == inventory
+    ds = VIIRSConnector().read(result, bands=None, bbox=(2, 51, 4, 52))
+    assert {n for n in ds if re.fullmatch(r'M\d{2}', n)} == published
+    assert 'M09' not in ds
+    assert set(ds.data_vars) >= inventory
+    frame = VIIRSConnector().parse_canonical(result)
+    assert frame.qa.iloc[0]['CMRDayNightFlag'] == 'Night'
+    if file_mode:
+        assert frame.qa.iloc[0]['DayNightFlag'] == 'Night'
+        assert frame.provider_metadata.iloc[0]['DayNightFlag'] == 'Night'
+        local_frame = VIIRSConnector().parse_canonical(pair(root))
+        assert local_frame.qa.iloc[0]['DayNightFlag'] == 'Night'
+        assert 'CMRDayNightFlag' not in local_frame.qa.iloc[0]
+
+
+def test_unpublished_day_night_mode(fixtures):
+    record = granule(pair(fixtures).paths[0])
+    del record['umm']['DataGranule']['DayNightFlag']
+    assert module._target(record, 'VNP02MOD', '2').day_night_flag is None
+
+
+@pytest.mark.parametrize('mode', ['Night', None])
+def test_live_smoke_rejects_non_day_before_fetch(monkeypatch, mode):
+    from types import SimpleNamespace
+    script = Path(__file__).resolve().parents[1] / 'scripts' / 'live_smoke.py'
+    spec = importlib.util.spec_from_file_location('viirs_live_smoke', script)
+    smoke = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(smoke)
+    monkeypatch.setenv('EARTHDATA_USERNAME', 'synthetic')
+    monkeypatch.setenv('EARTHDATA_PASSWORD', 'synthetic')
+    monkeypatch.setattr(VIIRSConnector, 'discover', lambda self, **kwargs: [
+        SimpleNamespace(product_id='G2120969416-LAADS', day_night_flag=mode)])
+    def unexpected_fetch(*args, **kwargs):
+        pytest.fail('non-day smoke target reached fetch')
+    monkeypatch.setattr(VIIRSConnector, 'fetch', unexpected_fetch)
+    with pytest.raises(RuntimeError, match='requires CMR DayNightFlag=Day'):
+        smoke.smoke_viirs_earthaccess()
 
 
 def test_single_band_provider_annotations(fixtures):

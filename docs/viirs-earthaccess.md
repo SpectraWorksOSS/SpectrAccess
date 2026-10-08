@@ -17,13 +17,13 @@ from spectraccess.connectors.viirs_earthaccess import VIIRSConnector
 
 connector = VIIRSConnector()
 targets = connector.discover(
-    bbox=(15.0, -36.0, 15.2, -35.8),
-    start=datetime(2024, 5, 1, 0, 0, 1, tzinfo=timezone.utc),
-    end=datetime(2024, 5, 1, 0, 5, 59, tzinfo=timezone.utc),
+    bbox=(-99.1, -8.4, -98.9, -8.2),
+    start=datetime(2012, 2, 2, 20, 6, 1, tzinfo=timezone.utc),
+    end=datetime(2012, 2, 2, 20, 11, 59, tzinfo=timezone.utc),
     products=("MOD",), platforms=("SNPP",),
 )
 raw = connector.fetch(targets[0], dest="./viirs")
-measurements = connector.read(raw, bbox=(15.0, -36.0, 15.2, -35.8),
+measurements = connector.read(raw, bbox=(-99.1, -8.4, -98.9, -8.2),
                               bands=("M09", "M15", "M16"))
 granules = connector.parse_canonical(raw)
 ```
@@ -105,8 +105,16 @@ prefix so their published epoch can coexist with the 03 scan time.
 
 Band selection remains strict. If a requested band is unavailable, the error
 lists missing bands, the opened product/file, group, and all variable names
-found in that group. It prints no scientific values. This inventory distinguishes
+found in that group, plus NASA's `DayNightFlag` and its source (file or CMR).
+It prints no scientific values. This inventory distinguishes
 an absent band from a different layout or a misidentified file.
+Night-mode granules omit daytime reflective bands, including the M09
+cirrus band at 1.378 micrometres. Requesting M09 from such a granule raises
+with `missing=['M09']` and `DayNightFlag=Night`; `bands=None` returns exactly
+the published bands and their annotations. Discovery targets expose CMR's
+mode as `day_night_flag`, or `None` when unpublished. The diagnostic uses
+the file's global `DayNightFlag`, falling back to the matching target's CMR
+flag; it reports `unpublished` if neither source supplies it.
 
 `scan_start_time` is a numeric coordinate on `number_of_scans`.
 `scan_index` links each retained image row to its original provider scan;
@@ -163,6 +171,8 @@ uncertainty interpretation is asserted beyond those descriptions.
 `parse_canonical` emits one [observation row](observation-fields.md) per
 science granule. It carries provider coverage, CMR footprint, granule QA,
 processing/collection version, identity and uncertainty definitions.
+Provider QA carries file `DayNightFlag` and `CMRDayNightFlag` where published;
+file global attributes also remain in `provider_metadata`.
 Scalar value/uncertainty stay null with `unc_status="unknown"`.
 No cloud fraction, confidence-to-sigma conversion or inferred quality
 verdict is added. Local files without a target have no invented CMR
@@ -172,9 +182,11 @@ footprint or collection version.
 
 `python scripts/live_smoke.py viirs_earthaccess` hands over
 `EARTHDATA_USERNAME`/`EARTHDATA_PASSWORD`; it SKIPs when absent.
-The pinned pair is `G2962669872-LAADS` / `G2962643279-LAADS`:
-`VNP02MOD.A2024122.0000.002.2024122092548.nc` and
-`VNP03MOD.A2024122.0000.002.2024122090017.nc` (120,157,355 bytes total).
+The pinned daytime partial swath is `G2120969416-LAADS` / `G2120964460-LAADS`:
+`VNP02MOD.A2012033.2006.002.2020318181515.nc` and
+`VNP03MOD.A2012033.2006.002.2020318172047.nc` (22,266,278 bytes total).
+CMR reports `DayNightFlag=Day` for both. The smoke requires Day on the
+discovered 02 target before fetching, then requests M09, M15 and M16.
 It prints discover/fetch/read stages and checks real bands, flags,
 scan time, geometry and a canonical row. Authenticated live verification
 runs in the maintainer's private workflow before merge.

@@ -11,16 +11,21 @@ import numpy as np
 ROOT = Path(__file__).resolve().parent
 
 
-def generate(root=ROOT, *, missing_time=False):
+def generate(root=ROOT, *, missing_time=False, night=False):
     root = Path(root)
     root.mkdir(parents=True, exist_ok=True)
     for grid, detectors, bands in (("MOD", 16, ("M09", "M15", "M16")), ("IMG", 32, ("I01", "I05"))):
+        if night and grid == 'IMG':
+            continue
+        if night and grid == 'MOD':
+            # Inventory observed in a NASA night-mode VNP02MOD granule.
+            bands = ('M07', 'M08', 'M10', 'M11', 'M12', 'M13', 'M14', 'M15', 'M16')
         for level in ("02", "03"):
             path = root / f"VNP{level}{grid}.A2024122.0000.002.2024122090000.nc"
             with netCDF4.Dataset(path, "w") as ds:
                 ds.setncatts(dict(platform="Suomi-NPP", instrument="VIIRS", orbit_number=1,
                     startDirection="Ascending", end_direction="Ascending", endDirection="Ascending",
-                    ShortName=f"VNP{level}{grid}", DayNightFlag="Day", time_coverage_start="2024-05-01T00:00:00.000Z",
+                    ShortName=f"VNP{level}{grid}", DayNightFlag="Night" if night else "Day", time_coverage_start="2024-05-01T00:00:00.000Z",
                     time_coverage_end="2024-05-01T00:06:00.000Z", processing_version="3.0.30"))
                 ds.createDimension("number_of_lines", detectors * 3)
                 ds.createDimension("number_of_pixels", 8)
@@ -41,7 +46,7 @@ def generate(root=ROOT, *, missing_time=False):
                 dims = ("number_of_lines", "number_of_pixels")
                 if level == "02":
                     for band in bands:
-                        thermal = band in {"M15", "M16", "I05"}
+                        thermal = band in {"M12", "M13", "M14", "M15", "M16", "I05"}
                         val = group.createVariable(band, "u2", dims, fill_value=65535)
                         val.setncatts(dict(valid_min=np.uint16(0), valid_max=np.uint16(65527),
                             scale_factor=np.float32(.01 if thermal else .00002), add_offset=np.float32(0),
@@ -89,7 +94,7 @@ def generate(root=ROOT, *, missing_time=False):
                     # Additional synthetic collision control, not a claim that
                     # NASA publishes a field called navigation_table.
                     group.createVariable("navigation_table", "f4", ("lookup",))[:] = np.arange(7)
-    for product, version in (("CLDMSK_L2_VIIRS_SNPP", "002"), ("CLDPROP_L2_VIIRS_SNPP", "011")):
+    for product, version in (() if night else (("CLDMSK_L2_VIIRS_SNPP", "002"), ("CLDPROP_L2_VIIRS_SNPP", "011"))):
         path = root / f"{product}.A2024122.0000.{version}.2024122090000.nc"
         with netCDF4.Dataset(path, 'w') as ds:
             ds.setncatts(dict(platform='Suomi-NPP', instrument='VIIRS', orbit_number=1,
@@ -132,3 +137,4 @@ def generate(root=ROOT, *, missing_time=False):
 
 if __name__ == "__main__":
     generate()
+    generate(ROOT / 'night', night=True)
