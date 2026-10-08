@@ -1,6 +1,8 @@
 # Granule observations and native measurements
 
-Imaging connectors expose two complementary outputs. `parse_canonical`
+Connectors following the granule-plus-Dataset pattern, such as SLSTR,
+expose two complementary outputs. Existing OLCI instead returns pixel rows.
+For the granule pattern, `parse_canonical`
 produces a schema-v1 DataFrame with one row per provider granule or
 observation. `read` produces an xarray Dataset containing measurements
 and annotation fields on their native supports. Join them by product
@@ -33,6 +35,9 @@ grid. Rectangular swath windows can contain centres outside the bbox.
 Tie-point geometry can have its own dimensions and extent: consult each
 connector's page before associating those angles with measurement pixels.
 Preserve longitude/latitude arrays rather than inventing pixel polygons.
+Tie-point angle arrays carry their own published coordinates. Non-grid
+dimensions are asset-specific, with original provider dimension names in
+attrs; matching dimension names in different files do not establish support.
 
 Use provider per-row, per-scan or per-pixel times for temporal joins.
 Granule timestamps do not replace those times. Preserve source epochs,

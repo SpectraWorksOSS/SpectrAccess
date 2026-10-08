@@ -403,16 +403,20 @@ def smoke_slstr_cdse() -> None:
     bbox = (138.0, -39.0, 138.2, -38.8)
     connector = SLSTRConnector(credentials=lambda: Credential(
         "password", os.environ["CDSE_PASSWORD"], os.environ["CDSE_USERNAME"]))
+    print("SLSTR CDSE stage discover", flush=True)
     targets = connector.discover(bbox=bbox, start=datetime(2024, 5, 1, 0, 12, tzinfo=timezone.utc),
                                  end=datetime(2024, 5, 1, 0, 16, tzinfo=timezone.utc), limit=100)
     target = next((t for t in targets if t.product_id == product_id), None)
     if target is None:
         raise RuntimeError("pinned SLSTR product absent from catalogue discovery")
     with tempfile.TemporaryDirectory() as tmp:
+        print("SLSTR CDSE stage fetch", flush=True)
         result = connector.fetch(target, dest=tmp, channels=("S4", "S7", "S8", "S9"), views=("nadir",))
+        print("SLSTR CDSE stage parse", flush=True)
         frame = connector.parse_canonical(result, bbox=bbox)
+        print("SLSTR CDSE stage read", flush=True)
         ds = connector.read(result, bbox=bbox, channels=("S4", "S7", "S8", "S9"), views=("nadir",))
-        expected = ("S4_radiance_an", "S7_BT_in", "S8_BT_in", "S9_BT_in", "cloud_in", "confidence_in", "time_stamp_in", "solar_zenith_tn")
+        expected = ("S4_radiance_an", "S7_BT_in", "S8_BT_in", "S9_BT_in", "cloud_in", "confidence_in", "time_stamp_in", "solar_zenith_tn", "latitude_tx", "longitude_tx")
         if frame.empty or any(name not in ds or ds[name].size == 0 for name in expected):
             raise RuntimeError("SLSTR real fetch/read missing measurements, flags, time or geometry")
         print(f"SLSTR CDSE: discover, filtered fetch, canonical parse and native read passed: {target.title}")

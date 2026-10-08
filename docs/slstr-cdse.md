@@ -46,9 +46,20 @@ grids have separate `rows_<grid>` and `columns_<grid>` dimensions. A bbox
 selects the smallest rectangular native window containing matching pixel
 centres, so its corners can include pixels outside the bbox. An outside
 bbox returns zero-sized measurement arrays and an empty canonical frame.
-Provider tie-point solar and satellite angles retain separate dimensions
-and full granule extent, even when measurements are clipped; consumers must
+Provider tie-point solar and satellite angles share `rows_tx/columns_tx`
+with `latitude_tx/longitude_tx` coordinates from `geodetic_tx.nc`. The
+tie-point and measurement Cartesian arrays are also returned. Tie points
+retain full granule extent, even when measurements are clipped; consumers
 explicitly choose how to map those angles to pixels. No interpolation occurs.
+Only native image rows/columns share dimensions across files. Other provider
+dimensions, such as detector and uncertainty-table indices, are namespaced
+by source asset to retain different table lengths without xarray alignment.
+Each variable's `provider_dimensions` attr maps output dimensions back to
+the original provider names.
+
+F1 measurements use `fn/fo` while their published quality and scan annotations
+use `in/io`. Fire-only selections include those annotation files and preserve
+their provider support; uncertainty tables are not converted to pixel sigma.
 
 `time_stamp_<grid>` coordinates decode the provider microsecond epoch
 (2000-01-01 UTC), one timestamp per native row. The source fields
@@ -86,6 +97,7 @@ Maintainers run `python scripts/live_smoke.py slstr_cdse` in the private
 login-enabled workflow. Pinned product ID:
 `a18067ba-e29f-43ff-b16d-f09b81df9e98`, acquired 2024-05-01 00:12 UTC.
 The smoke performs real discovery, filtered fetch, canonical parse and read;
+each stage prints a progress line before it starts.
 missing logins produce an explicit SKIP. A SKIP is not live verification.
 
 Provider reference: [ESA SLSTR Level-1 Product Data Format Specification](https://sentinels.copernicus.eu/documents/d/sentinel/sentinel-3-product-data-format-specification-slstr-level-1-products).

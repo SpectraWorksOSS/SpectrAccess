@@ -77,6 +77,11 @@ def _manifest(path):
     return ET.parse(path / "xfdumanifest.xml")
 
 
+def _annotation_grid(grid):
+    """PDFS: fire measurements use f; their row/quality support uses i."""
+    return "i" + grid[1] if grid[0] == "f" else grid
+
+
 def _assets(tree, channels, views):
     """Select actual published files, including ancillary uncertainty tables."""
     available = {Path(n.get("href", "")).name for n in tree.iter() if n.tag.split("}")[-1] == "fileLocation"}
@@ -92,16 +97,21 @@ def _assets(tree, channels, views):
             if not any(n.startswith(channel + "_") and n.endswith(view[0] + ".nc") for n in selected):
                 raise ValueError(f"manifest has no measurement for {channel} {view}")
     for grid in grids:
-        for prefix in ("geodetic", "indices", "flags"):
+        for prefix in ("geodetic", "cartesian", "indices", "flags"):
             name = f"{prefix}_{grid}.nc"
             if name not in available:
                 raise ValueError(f"manifest lacks {name}")
             selected.add(name)
+    for name in ("geodetic_tx.nc", "cartesian_tx.nc", *(f"geometry_t{v[0]}.nc" for v in views)):
+        if name not in available:
+            raise ValueError(f"manifest lacks {name}")
+        selected.add(name)
+    annotation_grids = {_annotation_grid(g) for g in grids}
     for name in available:
         if (name == "viscal.nc" or name.startswith("time_")
                 or name in {f"geometry_t{v[0]}.nc" for v in views}
                 or any(name.startswith(c + "_") and ("quality" in name or "uncertainty" in name)
-                       and name.rsplit("_", 1)[-1].removesuffix(".nc") in grids for c in channels)):
+                       and name.rsplit("_", 1)[-1].removesuffix(".nc") in annotation_grids for c in channels)):
             selected.add(name)
     if "viscal.nc" not in selected or "time_in.nc" not in selected:
         raise ValueError("manifest lacks viscal.nc or time_in.nc")
@@ -236,7 +246,7 @@ class SLSTRConnector(Connector):
                                 "calibration": key["calibration"], "radiance_adjustment_factor": 1.0,
                                 "provider_packing": packing,
                                 "value_transform": "provider CF scale/offset and fill decoding only"}
-                output[name] = values.rename({"rows": f"rows_{grid}", "columns": f"columns_{grid}"})
+                output[name] = _native_array(values, grid, asset.name)
                 # Radiance error arrays, orphan arrays and IR tables stay in their
                 # own source dimensions. Never turn a table into pixel sigma.
                 with xr.open_dataset(asset) as source, xr.open_dataset(asset, mask_and_scale=False) as encoded:
@@ -254,17 +264,29 @@ class SLSTRConnector(Connector):
                 _copy_native(output, flags, grid, window, asset=f"flags_{grid}.nc")
             with xr.open_dataset(path / f"indices_{grid}.nc", mask_and_scale=False) as indices:
                 _copy_native(output, indices, grid, window, asset=f"indices_{grid}.nc")
+            with xr.open_dataset(path / f"cartesian_{grid}.nc") as cartesian:
+                _copy_native(output, cartesian, grid, window, asset=f"cartesian_{grid}.nc")
+        # Tie-point rows/columns are a separate published support, common to
+        # both views. Return that support in full, without interpolation.
+        for filename in ("geodetic_tx.nc", "cartesian_tx.nc"):
+            with xr.open_dataset(path / filename) as support:
+                _copy_native(output, support, "tx", None, asset=filename)
+        for name in ("latitude_tx", "longitude_tx"):
+            output.coords[name] = output[name]
+        annotation_windows = dict(windows)
+        for grid, window in windows.items():
+            annotation_windows.setdefault(_annotation_grid(grid), {"rows": window["rows"]})
         for asset in sorted(path.glob("*.nc")):
             if asset.name.startswith("time_"):
                 with xr.open_dataset(asset) as times:
                     for name, value in times.data_vars.items():
                         suffix = name.rsplit("_", 1)[-1]
-                        grids = [suffix] if suffix in windows else [g for g in windows if ("i" if g[0] == "f" else g[0]) == suffix]
+                        grids = [suffix] if suffix in annotation_windows else [g for g in windows if _annotation_grid(g)[0] == suffix]
                         if name.startswith("time_stamp_"):
                             for grid in grids:
                                 if value.dims != ("rows",) or value.size < windows[grid]["rows"].stop:
                                     raise ValueError(f"{name} row shape does not match {grid}")
-                                stamp = value.isel(rows=windows[grid]["rows"]).load().rename({"rows": f"rows_{grid}"})
+                                stamp = _native_array(value.isel(rows=windows[grid]["rows"]), grid, asset.name)
                                 if not np.issubdtype(stamp.dtype, np.datetime64):
                                     raise ValueError(f"{name} must decode to provider row times")
                                 alias = f"time_stamp_{grid}"
@@ -274,19 +296,22 @@ class SLSTRConnector(Connector):
                                     time_support="sub-satellite image-row crossing; common to nadir/oblique, not exact pixel acquisition")
                         elif grids:
                             grid = grids[0]
-                            _copy_native(output, times[[name]], grid, windows[grid], asset=asset.name)
+                            _copy_native(output, times[[name]], grid, annotation_windows[grid], asset=asset.name)
                         elif value.ndim == 0 and name not in output:
-                            output[name] = value.load()
+                            output[name] = _native_array(value, asset.stem, asset.name)
             elif asset.name.startswith("geometry_t") and asset.name[-4] in {v[0] for v in views}:
                 with xr.open_dataset(asset) as geometry:
-                    _copy_native(output, geometry, asset.stem[-2:], None, asset=asset.name)
+                    _copy_native(output, geometry, "tx", None, asset=asset.name)
+                    for name in geometry.data_vars:
+                        output[name].attrs["spatial_support"] = "geodetic_tx.nc; cartesian_tx.nc"
             elif "quality" in asset.name or "uncertainty" in asset.name:
                 grid = asset.stem.rsplit("_", 1)[-1]
-                if grid in windows:
+                channel = asset.stem.split("_", 1)[0]
+                if channel in channels and grid in annotation_windows:
                     with xr.open_dataset(asset) as quality, xr.open_dataset(asset, mask_and_scale=False) as encoded:
                         for name, value in quality.data_vars.items():
                             field = encoded[[name]] if "exception" in name or "flag" in name or "flag_masks" in value.attrs else quality[[name]]
-                            _copy_native(output, field, grid, windows[grid], asset=asset.name)
+                            _copy_native(output, field, grid, annotation_windows[grid], asset=asset.name)
         for grid in windows:
             if f"time_stamp_{grid}" not in output:
                 raise ValueError(f"missing provider time_stamp_{grid}; no granule-time substitution")
@@ -339,6 +364,8 @@ class SLSTRConnector(Connector):
             intersects = False
             for asset in path.glob("geodetic_*.nc"):
                 grid = asset.stem.rsplit("_", 1)[-1]
+                if grid == "tx":
+                    continue
                 with xr.open_dataset(asset) as geo:
                     lon, lat = geo[f"longitude_{grid}"].values, geo[f"latitude_{grid}"].values
                     intersects |= bool(np.any((lon >= bbox[0]) & (lon <= bbox[2]) & (lat >= bbox[1]) & (lat <= bbox[3])))
@@ -376,13 +403,27 @@ class _ReaderKey(dict):
         return {key: getattr(value, "name", value) for key, value in self.items()}
 
 
+def _native_array(value, grid, asset):
+    """Only native image rows/columns share dimensions across provider files.
+
+    Detector, integrator, uncertainty and orphan dimensions belong to their
+    source asset; identical provider names never imply identical supports.
+    """
+    dimensions = {d: f"{d}_{grid}" if d in {"rows", "columns"} else f"{d}__{Path(asset).stem}"
+                  for d in value.dims}
+    value = value.load().rename(dimensions)
+    value.attrs.update(provider_file=asset,
+                       provider_dimensions={renamed: original for original, renamed in dimensions.items()})
+    return value
+
+
 def _copy_native(output, source, grid, window, *, asset):
     output.attrs.setdefault("provider_global_attributes", {})[asset] = deepcopy(source.attrs)
     for name, value in source.data_vars.items():
         if window:
             value = value.isel({d: s for d, s in window.items() if d in value.dims})
-        value = value.load().rename({d: f"{d}_{grid}" for d in value.dims})
-        value.attrs.update(provider_file=asset, provider_variable=name)
+        value = _native_array(value, grid, asset)
+        value.attrs["provider_variable"] = name
         packing = {k: value.encoding[k] for k in ("scale_factor", "add_offset", "_FillValue") if k in value.encoding}
         if packing:
             value.attrs["provider_packing"] = packing
