@@ -76,6 +76,7 @@ uses the backend selected by keyring.
 | `earthdata` | Earthdata username/password or a token | [NASA Earthdata Login](https://urs.earthdata.nasa.gov/); authorize LP DAAC access |
 | `usgs` | EarthExplorer username and M2M application token in the password prompt | [USGS registration](https://ers.cr.usgs.gov/register/); request M2M access |
 | `radcalnet` | Portal username and password | [RadCalNet portal](https://www.radcalnet.org/); create a free account |
+| `eumetsat` | Consumer key as account, consumer secret at the password prompt | [EUMETSAT API keys](https://api.eumetsat.int/api-key); create an account and obtain a key/secret pair |
 
 Earthdata discovery uses earthaccess without login. Downloads use spectrAccess's
 credential session: bearer authentication for tokens, or basic authentication

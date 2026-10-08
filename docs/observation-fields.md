@@ -46,3 +46,13 @@ version and selected calibration are separately identified provenance;
 Satpy-normalized platform or sensor labels are not provider metadata.
 Consumers build their own observation records from these outputs, stating
 any derived geometry, reflectance, aggregation or QA interpretation they add.
+
+For [MTG-FCI](fci-eumetsat.md), each repeat cycle remains a separate granule
+row. L1c `<channel>_time` is provider pixel acquisition time on that channel's
+native grid, retaining epoch units and calendar. L2 cloud products expose
+their granule interval and `pixel_time_available=False`. The provider
+catalogue may omit footprint geometry; targets retain the published coverage
+declaration, while image arrays carry scan angles and projection parameters.
+Radiometric noise lookup tables keep independent channel dimensions and
+their provider packing metadata. `unc_definition` describes those tables
+when present, without assigning a scalar uncertainty to the repeat cycle.
