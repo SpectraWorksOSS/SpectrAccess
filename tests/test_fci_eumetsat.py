@@ -2,6 +2,7 @@
 import io
 import json
 import logging
+import traceback
 import runpy
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -52,9 +53,10 @@ class DataStoreHTTP:
     token = "synthetic-bearer-never-log"
 
     def __init__(self, fixture, monkeypatch, *, ignore_range=False, token_status=200,
-                 access_status=200, denied_route="/entry"):
+                 access_status=200, denied_route="/entry", error_format="json"):
         self.fixture, self.ignore_range, self.token_status = fixture, ignore_range, token_status
         self.access_status, self.denied_route = access_status, denied_route
+        self.error_format = error_format
         self.calls, self.streams = [], []
         root = Path(__file__).parent / "fixtures/fci_eumetsat"
         self.search = json.loads((root / "search.json").read_text())
@@ -70,11 +72,12 @@ class DataStoreHTTP:
         response.request, response.url, response.status_code = request, request.url, 200
         if path == "/token":
             response.status_code = self.token_status
-            payload = {"access_token": self.token, "expires_in": 86400} if self.token_status == 200 else {"error": "invalid_client"}
+            payload = {"access_token": self.token, "expires_in": 86400} if self.token_status == 200 else {
+                "error": "invalid_client", "description": f"Consumer {CREDENTIAL.account} {CREDENTIAL.secret}; Bearer {self.token}"}
         elif self.access_status != 200 and path.endswith(self.denied_route):
             response.status_code = self.access_status
-            # Error bodies and headers must never reach connector/smoke diagnostics.
-            payload = {"title": self.token, "description": CREDENTIAL.secret}
+            payload = {"title": "GeneralLicense required to access this collection",
+                       "description": f"Consumer {CREDENTIAL.account} {CREDENTIAL.secret}; Bearer {self.token}; token {self.token}"}
             response.headers["X-Private-Value"] = CREDENTIAL.account
         elif path.endswith("/osdd"):
             response._content = self.osdd
@@ -107,7 +110,16 @@ class DataStoreHTTP:
             return response
         else:
             raise AssertionError(f"Unexpected HTTP route: {path}")
-        response._content = json.dumps(payload).encode()
+        if response.status_code >= 400 and self.error_format != "json":
+            message = ("invalid_client" if path == "/token" else "GeneralLicense required to access this collection")
+            details = f"{message}; Consumer {CREDENTIAL.account} {CREDENTIAL.secret}; Bearer {self.token}; case CASE-42"
+            if path != "/token":
+                details += f"; token {self.token}"
+            if self.error_format == "xml":
+                details = f'<ows:ExceptionReport xmlns:ows="http://www.opengis.net/ows/1.1"><ows:Exception><ows:ExceptionText>{details}</ows:ExceptionText></ows:Exception></ows:ExceptionReport>'
+            response._content = details.encode()
+        else:
+            response._content = json.dumps(payload).encode()
         response.headers["Content-Type"] = "application/json"
         return response
 
@@ -268,6 +280,8 @@ def test_auth_error_redacts_keys(fixture, monkeypatch, status):
     assert CREDENTIAL.account not in str(exc.value) and CREDENTIAL.secret not in str(exc.value)
     assert exc.value.__suppress_context__
     assert exc.value.status_code == status and exc.value.stage == "token authentication"
+    assert "invalid_client" in str(exc.value) and f"HTTP {status}" in str(exc.value)
+    assert isinstance(exc.value.__cause__, requests.HTTPError)
 
 
 @pytest.mark.parametrize("status", [401, 403])
@@ -284,11 +298,48 @@ def test_authenticated_collection_access_is_not_credential_rejection(fixture, tm
     assert error.status_code == status and error.stage == stage
     assert error.collection == mod.COLLECTIONS["l1c"]
     assert "not authorised" in str(error) and "EO:EUM:DAT:0662" in str(error)
+    assert "GeneralLicense required to access this collection" in str(error)
     assert "licence" in str(error) and "next Data Store login" in str(error) and "up to an hour" in str(error)
     for value in (http.token, CREDENTIAL.secret, CREDENTIAL.account):
         assert value not in str(error) and value not in str(error.__dict__)
     assert error.__suppress_context__
     assert not list(tmp_path.rglob("*.nc")) and not list(tmp_path.rglob("*.part"))
+
+
+@pytest.mark.parametrize("status, error_format, token_rejected", [
+    (401, "json", True), (403, "xml", True), (403, "xml", False),
+    (403, "json", False), (403, "text", False), (404, "text", False)])
+def test_provider_message_and_original_chain_redact_only_secrets(fixture, tmp_path, monkeypatch, caplog,
+                                                                status, error_format, token_rejected):
+    http = DataStoreHTTP(fixture, monkeypatch, token_status=status if token_rejected else 200,
+                         access_status=200 if token_rejected else status, error_format=error_format)
+    connector = FCIConnector(credentials=CREDENTIAL)
+    kind = CredentialRejected if token_rejected else mod.FCIAuthorizationError if status == 403 else mod.FCIProviderError
+    with caplog.at_level(logging.DEBUG, logger="eumdac"):
+        with pytest.raises(kind) as caught:
+            connector.fetch(target(), dest=tmp_path, channels=("ir_105",))
+        error = caught.value
+        logging.getLogger("eumdac").error("Provider diagnostic: %s", error,
+                                         exc_info=(type(error), error, error.__traceback__))
+    stage = "token authentication" if token_rejected else "entry fetch"
+    provider_text = "invalid_client" if token_rejected else "GeneralLicense required to access this collection"
+    assert provider_text in str(error) and stage in str(error) and f"HTTP {status}" in str(error)
+    assert error.__cause__ is not None
+    if token_rejected:
+        assert isinstance(error.__cause__, requests.HTTPError)
+    else:
+        assert isinstance(error.__cause__, mod.eumdac.product.ProductError)
+        assert isinstance(error.__cause__.__cause__, requests.HTTPError)
+    if error_format != "json":
+        assert "case CASE-42" in str(error)
+    if error_format == "xml":
+        assert "ExceptionReport" not in str(error)  # Parsed provider exceptionText.
+    formatted = "".join(traceback.format_exception(type(error), error, error.__traceback__))
+    assert "direct cause" in formatted
+    for value in (CREDENTIAL.account, CREDENTIAL.secret, http.token):
+        assert value not in str(error) and value not in repr(error)
+        assert value not in formatted and value not in caplog.text
+        assert all(value not in str(record.__dict__) for record in caplog.records)
 
 
 @pytest.mark.parametrize("status", [401, 403])
@@ -307,6 +358,7 @@ def test_smoke_reports_sanitised_http_stage(fixture, monkeypatch, capsys, status
     output = capsys.readouterr().out
     stage = "token authentication" if token_rejected else "entry fetch"
     assert f"FCI EUMETSAT smoke FAIL: {stage}; HTTP {status} (4xx)" in output
+    assert ("invalid_client" if token_rejected else "GeneralLicense required to access this collection") in output
     assert "passed:" not in output and "headers" not in output
     for value in (http.token, CREDENTIAL.secret, CREDENTIAL.account):
         assert value not in output
@@ -342,7 +394,7 @@ def test_byte_range_refusal_does_not_download_cycle(fixture, tmp_path, monkeypat
     with pytest.raises(RuntimeError, match="byte-range response"):
         mod._EntryRange(product, GENERATOR["filename"]("BODY", 1))
     assert http.streams[0].bytes_read == 65 and http.streams[0].closed
-    with pytest.raises(RuntimeError, match="entry fetch failed"):
+    with pytest.raises(RuntimeError, match="entry fetch.*byte-range response"):
         FCIConnector(credentials=CREDENTIAL).fetch(target(), dest=tmp_path, channels=("ir_105",))
     assert all(byte_range == "bytes=0-63" for _, byte_range in http.entries_requested)
     assert not list(tmp_path.rglob("*.nc")) and not list(tmp_path.rglob("*.part"))
@@ -370,7 +422,7 @@ def test_debug_logging_redacts_real_eumdac_calls(fixture, tmp_path, monkeypatch,
         targets = connector.discover(bbox=BBOX, start=START, end=START + timedelta(minutes=20), products=("l1c",))
         connector.fetch(targets[0], dest=tmp_path, channels=("ir_105",))
     records = [r for r in caplog.records if r.name == "eumdac"]
-    assert any("EUMDAC token status: <redacted>" in r.getMessage() for r in records)
+    assert any("Current token <redacted> expires in" in r.getMessage() for r in records)
     assert any("Bearer <redacted>" in r.getMessage() for r in records)
     for record in records:
         assert http.token not in record.getMessage() and http.token not in str(record.__dict__)

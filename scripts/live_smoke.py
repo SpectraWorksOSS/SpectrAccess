@@ -437,7 +437,7 @@ def smoke_fci_eumetsat() -> None:
         except Exception as exc:
             status = getattr(exc, "status_code", None)
             http = f"HTTP {status} ({status // 100}xx)" if isinstance(status, int) else "HTTP status unavailable"
-            print(f"FCI EUMETSAT smoke FAIL: {getattr(exc, 'stage', stage)}; {http}", flush=True)
+            print(f"FCI EUMETSAT smoke FAIL: {getattr(exc, 'stage', stage)}; {http}; {exc}", flush=True)
             raise
 
     print("FCI EUMETSAT discover: pinned 2024-10-01 10:00 repeat cycle", flush=True)

@@ -26,12 +26,15 @@ logger redacts upstream token-status and bearer-request records, including
 at DEBUG, without changing the user's log level.
 
 After token authentication, HTTP 401/403 catalogue or product/entry access
-raises `FCIAuthorizationError`, naming the collection and preserving only the
-HTTP status and failing stage. Check the account's collection licence: the
+raises `FCIAuthorizationError`, naming the collection. Provider failures retain
+the HTTP status, failing stage and provider message: EUMETSAT `ExceptionReport`
+`exceptionText` when present, otherwise the response text. The message is
+bounded to 500 characters after redacting consumer credentials and bearer tokens.
+The original exception chain is retained with secret values redacted, and the
+live smoke prints the redacted provider message. Check the account's collection licence: the
 EUMETSAT [Data Store FAQ](https://user.eumetsat.int/resources/user-guides/frequently-asked-questions-for-data-store)
 advises logging out, logging in again and waiting an hour for licence changes
-to activate. The live smoke
-prints the failing stage and HTTP status/class without response values or headers.
+to activate. The live smoke also prints the failing stage and HTTP status/class.
 
 Ten-minute L1c cycles are EUMETSAT Recommended Data. Retrospective access
 after at least one hour is Without Charge; original numerical data have

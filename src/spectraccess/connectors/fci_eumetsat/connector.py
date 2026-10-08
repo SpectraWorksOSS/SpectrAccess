@@ -9,17 +9,19 @@ import re
 import shutil
 from copy import deepcopy
 from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 from urllib.parse import quote
+from xml.etree import ElementTree
 
 import numpy as np
 import xarray as xr
 
 from spectraccess.core.connector import Connector
-from spectraccess.core.credentials import CredentialSource, CredentialRejected, provider_error, resolve
+from spectraccess.core.credentials import CredentialSource, CredentialRejected, describe_error, resolve
 from spectraccess.core.schema import frame_from_records
 
 try:
@@ -50,19 +52,66 @@ NOISE_DEFINITION = ("Provider radiometric noise model lookup table: radiometric_
                     "not a per-pixel standard uncertainty or a coverage factor.")
 _SUFFIX = re.compile(r"_(\d{14})_(\d{14})_([^_]+)_([^_]*)_([^_]+)_(\d{4})_(\d{4})\.nc$")
 _QA_FIELDS = ("product_quality", "product_completeness", "product_timeliness")
+_ACTIVE_AUTH = ContextVar("fci_eumdac_auth", default=((), None))
+
+
+def _auth_values(credential=None, token=None):
+    credentials = getattr(token, "credentials", ())
+    values = (credential.account, credential.secret) if credential is not None else tuple(credentials)
+    return tuple(value for value in (*values, getattr(token, "_access_token", "")) if value)
+
+
+@contextmanager
+def _eumdac_context(credential=None, token=None):
+    marker = _ACTIVE_AUTH.set((_auth_values(credential, token), token))
+    try:
+        yield
+    finally:
+        _ACTIVE_AUTH.reset(marker)
+
+
+def _redact(text, values=()):
+    # Same exact-value/colon-part treatment as core credentials.describe_error,
+    # without truncating log records or chained exception messages.
+    parts = {part for value in values for part in (value, *value.split(":")) if part}
+    for part in sorted(parts, key=len, reverse=True):
+        text = text.replace(part, "<redacted>")
+    text = re.sub(r"(?i)(Bearer\s+)[^\s'\"},<;)]+", r"\1<redacted>", text)
+    return re.sub(r"(?i)(access_token=)[^&\s'\"<]+", r"\1<redacted>", text)
+
+
+def _sanitize_chain(exc, values):
+    def clean(value):
+        if isinstance(value, str):
+            return _redact(value, values)
+        if isinstance(value, tuple):
+            return tuple(clean(item) for item in value)
+        if isinstance(value, list):
+            return [clean(item) for item in value]
+        if isinstance(value, dict):
+            return {clean(key): clean(item) for key, item in value.items()}
+        return value
+    pending, seen = [exc], set()
+    while pending:
+        current = pending.pop()
+        if current is None or id(current) in seen:
+            continue
+        seen.add(id(current))
+        current.args = clean(current.args)
+        for name, value in vars(current).items():
+            setattr(current, name, clean(value))
+        pending.extend((current.__cause__, current.__context__))
 
 
 class _EumdacRedaction(logging.Filter):
     """Sanitize upstream token and request records before any handler sees them."""
     def filter(self, record):
-        message = record.getMessage()
-        # EUMDAC token renewal records contain both current and previous tokens.
-        if record.module == "token" and any(text in message for text in (
-                "Current token ", "starting renewal of ", "Received/previous ",
-                "Could not get fresh token from server")):
-            message = "EUMDAC token status: <redacted>"
-        message = re.sub(r"(?i)(Bearer\s+)[^\s'\"},]+", r"\1<redacted>", message)
-        message = re.sub(r"(?i)(access_token=)[^&\s'\"]+", r"\1<redacted>", message)
+        values, token = _ACTIVE_AUTH.get()
+        values = (*values, *_auth_values(token=token))
+        message = _redact(record.getMessage(), values)
+        if record.exc_info:
+            _sanitize_chain(record.exc_info[1], values)
+            record.exc_text = None
         record.msg, record.args = message, ()
         return True
 
@@ -145,7 +194,7 @@ def _path(result, entry):
 
 
 class FCIProviderError(RuntimeError):
-    """Value-free provider failure with HTTP status and failing stage."""
+    """Redacted provider failure with HTTP status and failing stage."""
     def __init__(self, message, *, status_code, stage):
         super().__init__(message)
         self.status_code, self.stage = status_code, stage
@@ -153,11 +202,11 @@ class FCIProviderError(RuntimeError):
 
 class FCIAuthorizationError(FCIProviderError):
     """An authenticated EUMETSAT account lacks collection access."""
-    def __init__(self, collection, *, status_code, stage):
+    def __init__(self, collection, *, status_code, stage, provider_message):
         self.collection = collection
         super().__init__(
-            f"FCI EUMETSAT account is not authorised for collection {collection} "
-            f"(HTTP {status_code}). Check the collection licence. The EUMETSAT Data Store FAQ "
+            f"FCI EUMETSAT {stage} (HTTP {status_code}), collection {collection}: {provider_message}. "
+            "The account is not authorised for this collection. Check the collection licence. The EUMETSAT Data Store FAQ "
             "says licence changes reach the Data Store after the next Data Store login, "
             "and propagation can take up to an hour.", status_code=status_code, stage=stage)
 
@@ -175,16 +224,51 @@ def _http_status(exc):
     return None
 
 
-def _provider_failure(exc, stage, collection=None):
+def _provider_message(exc):
+    current, seen = exc, set()
+    fallback = None
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        response = getattr(current, "response", None)
+        if response is not None and response.text:
+            text = response.text
+            break
+        info = getattr(current, "extra_info", None) or {}
+        fallback = fallback or info.get("text") or info.get("response")
+        current = current.__cause__ or current.__context__
+    else:
+        text = str(fallback) if fallback else str(exc)
+    try:
+        root = ElementTree.fromstring(text)
+        messages = [" ".join(node.itertext()) for node in root.iter()
+                    if node.tag.rsplit("}", 1)[-1].lower() == "exceptiontext"]
+        if messages:
+            return "\n".join(messages)
+    except ElementTree.ParseError:
+        pass
+    return text
+
+
+def _provider_failure(exc, stage, collection=None, *, values=()):
+    values = (*values, *_ACTIVE_AUTH.get()[0])
     status = _http_status(exc)
+    message = _redact(_provider_message(exc), values)
+    # Reuse core credential redaction and its 500-character diagnostic bound.
+    original_length = len(" ".join(message.split()))
+    for value in values or ("",):
+        message = describe_error(RuntimeError(message), secret=value).removeprefix("RuntimeError: ")
+    if original_length > 500:
+        message += " [truncated]"
+    _sanitize_chain(exc, values)
+    detail = f"FCI EUMETSAT {stage} (HTTP {status if status is not None else 'unavailable'}): {message}"
     if status in (401, 403) and collection is not None:
-        return FCIAuthorizationError(collection, status_code=status, stage=stage)
+        return FCIAuthorizationError(collection, status_code=status, stage=stage, provider_message=message)
     if status in (401, 403) and stage == "token authentication":
         failure = CredentialRejected("eumetsat", "credential source")
+        failure.args = (detail,)
         failure.status_code, failure.stage = status, stage
         return failure
-    detail = f" (HTTP {status})" if isinstance(status, int) else ""
-    return FCIProviderError(f"FCI EUMETSAT {stage} failed{detail}", status_code=status, stage=stage)
+    return FCIProviderError(detail, status_code=status, stage=stage)
 
 
 class _EntryRange(io.RawIOBase):
@@ -371,18 +455,14 @@ class FCIConnector(Connector):
 
     def _store(self, credentials=None):
         credential = resolve("eumetsat", credentials if credentials is not None else self.credentials)
+        token = None
         try:
             token = eumdac.AccessToken((credential.account, credential.secret))
-            # Force authentication here so errors cannot expose consumer credentials.
-            str(token)
+            with _eumdac_context(credential, token):
+                str(token)
             return eumdac.DataStore(token)
         except Exception as exc:
-            failure = provider_error("eumetsat", credentials if credentials is not None else self.credentials,
-                                     exc, credential, RuntimeError)
-            if isinstance(failure, CredentialRejected):
-                failure.status_code, failure.stage = _http_status(exc), "token authentication"
-                raise failure from None
-            raise _provider_failure(exc, "token authentication") from None
+            raise _provider_failure(exc, "token authentication", values=_auth_values(credential, token)) from exc
 
     def discover(self, *, bbox, start: date | datetime, end: date | datetime,
                  products=("l1c", "cloud_mask", "cloud_type", "ctth"), limit=10):
@@ -395,19 +475,20 @@ class FCIConnector(Connector):
         if limit == 0:
             return []
         store, targets = self._store(), []
-        try:
-            for name in products:
-                collection = COLLECTIONS[name]
-                found = store.get_collection(collection).search(dtstart=start, dtend=end, bbox=",".join(map(str, bbox)))
-                for product in itertools.islice(found, limit):
-                    raw = deepcopy(product.metadata)
-                    identifier = str(product)
-                    url = (f"https://api.eumetsat.int/data/download/1.0.0/collections/{quote(collection, safe='')}"
-                           f"/products/{quote(identifier, safe='')}/metadata?format=json")
-                    targets.append(FCITarget(identifier, collection, identifier, url, datetime.now(timezone.utc),
-                                             raw, bbox, _utc(product.sensing_start), _utc(product.sensing_end)))
-        except Exception as exc:
-            raise _provider_failure(exc, "catalogue query", collection) from None
+        with _eumdac_context(token=store.token):
+            try:
+                for name in products:
+                    collection = COLLECTIONS[name]
+                    found = store.get_collection(collection).search(dtstart=start, dtend=end, bbox=",".join(map(str, bbox)))
+                    for product in itertools.islice(found, limit):
+                        raw = deepcopy(product.metadata)
+                        identifier = str(product)
+                        url = (f"https://api.eumetsat.int/data/download/1.0.0/collections/{quote(collection, safe='')}"
+                               f"/products/{quote(identifier, safe='')}/metadata?format=json")
+                        targets.append(FCITarget(identifier, collection, identifier, url, datetime.now(timezone.utc),
+                                                 raw, bbox, _utc(product.sensing_start), _utc(product.sensing_end)))
+            except Exception as exc:
+                raise _provider_failure(exc, "catalogue query", collection, values=_auth_values(token=store.token)) from exc
         return targets
 
     def fetch(self, target, *, dest=None, bbox=None, channels=CHANNELS, credentials=None):
@@ -420,37 +501,38 @@ class FCIConnector(Connector):
         path = path / hashlib.sha256((target.collection + target.product_id).encode()).hexdigest()[:20]
         path.mkdir(parents=True, exist_ok=True)
         downloaded, local_files = [], {}
-        try:
-            product = store.get_product(target.collection, target.product_id)
-            available = tuple(product.entries)
-            l1c = target.collection == COLLECTIONS["l1c"]
-            selected = []
-            for entry in available:
-                if not entry.endswith(".nc"):
-                    continue
-                if not l1c or "-TRAIL-" in entry:
-                    selected.append(entry)
-                elif "-BODY-" in entry and _entry_intersects(product, entry, bbox, channels):
-                    selected.append(entry)
-            if l1c and any("-BODY-" in e for e in selected) and not any("-TRAIL-" in e for e in selected):
-                raise ValueError("FCI repeat cycle has no trailer entry")
-            for entry in selected:
-                filename = Path(entry.replace("\\", "/")).name
-                # WMO filenames plus temporary/cache roots can exceed Windows'
-                # NetCDF library path limit. Preserve source names in the result.
-                local_name = hashlib.sha256(entry.encode()).hexdigest()[:20] + ".nc"
-                output = path / local_name
-                partial = output.with_suffix(output.suffix + ".part")
-                try:
-                    with product.open(entry=entry) as stream, partial.open("wb") as sink:
-                        shutil.copyfileobj(stream, sink)
-                    partial.replace(output)
-                finally:
-                    partial.unlink(missing_ok=True)
-                downloaded.append(filename)
-                local_files[filename] = local_name
-        except Exception as exc:
-            raise _provider_failure(exc, "entry fetch", target.collection) from None
+        with _eumdac_context(token=store.token):
+            try:
+                product = store.get_product(target.collection, target.product_id)
+                available = tuple(product.entries)
+                l1c = target.collection == COLLECTIONS["l1c"]
+                selected = []
+                for entry in available:
+                    if not entry.endswith(".nc"):
+                        continue
+                    if not l1c or "-TRAIL-" in entry:
+                        selected.append(entry)
+                    elif "-BODY-" in entry and _entry_intersects(product, entry, bbox, channels):
+                        selected.append(entry)
+                if l1c and any("-BODY-" in e for e in selected) and not any("-TRAIL-" in e for e in selected):
+                    raise ValueError("FCI repeat cycle has no trailer entry")
+                for entry in selected:
+                    filename = Path(entry.replace("\\", "/")).name
+                    # WMO filenames plus temporary/cache roots can exceed Windows'
+                    # NetCDF library path limit. Preserve source names in the result.
+                    local_name = hashlib.sha256(entry.encode()).hexdigest()[:20] + ".nc"
+                    output = path / local_name
+                    partial = output.with_suffix(output.suffix + ".part")
+                    try:
+                        with product.open(entry=entry) as stream, partial.open("wb") as sink:
+                            shutil.copyfileobj(stream, sink)
+                        partial.replace(output)
+                    finally:
+                        partial.unlink(missing_ok=True)
+                    downloaded.append(filename)
+                    local_files[filename] = local_name
+            except Exception as exc:
+                raise _provider_failure(exc, "entry fetch", target.collection, values=_auth_values(token=store.token)) from exc
         return FCIResult(path, target, datetime.now(timezone.utc), bbox, tuple(downloaded), local_files)
 
     def parse(self, result, **kwargs):
