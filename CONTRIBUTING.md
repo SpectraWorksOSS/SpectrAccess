@@ -31,6 +31,11 @@ rotation and rejection tests. See [credentials](docs/credentials.md).
 
 ## Commit Messages
 
+Maintainers run login-gated live tests from a private workflow once a
+reviewed change is on a SpectraWorksOSS branch. Contributor branches never
+run with maintainer logins. A maintainer posts the live result on the PR;
+fixture tests remain runnable without provider accounts.
+
 Commit subjects follow [Conventional Commits](https://www.conventionalcommits.org/):
 `type(scope)!: subject`, with type one of `feat`, `fix`, `docs`, `chore`, `ci`,
 `build`, `refactor`, `test`, `perf`, `style`, `revert`; `!` marks a breaking change.

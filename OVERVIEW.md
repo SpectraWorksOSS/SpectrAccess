@@ -47,6 +47,10 @@ For Landsat Collection-2 discovery and download through EODAG/USGS:
 pip install "spectraccess[landsat]"
 ```
 
+For Sentinel-3 SLSTR Level-1, install `spectraccess[slstr]` on Python 3.11
+or later. This extra includes Satpy 0.60.0 (GPLv3 or later).
+See [SLSTR native observations](docs/slstr-cdse.md).
+
 ## Quickstart
 
 ```python
@@ -70,6 +74,7 @@ Credential environment variables and provider-client login files are no longer r
 
 | Connector | Status | Auth requirement |
 | --- | --- | --- |
+| Sentinel-3 [SLSTR](https://eo-atlas.org/products/sensor/slstr) | [SL_1_RBT native radiance/BT, flags, row time, uncertainty and tie-point geometry](docs/slstr-cdse.md); granule rows plus xarray reader | CDSE account; `spectraccess[slstr]` extra, Python 3.11+ |
 | GSICS GPPA | Available (EUMETSAT live, verified end-to-end; CMA catalog live but content-empty as of 2026-07-05; NOAA STAR pending, host unreachable 2026-07-05) | None for public THREDDS catalogs |
 | MODIS/VIIRS calibration LUT ([VIIRS](https://eo-atlas.org/products/sensor/viirs), [MODIS](https://eo-atlas.org/products/sensor/modis)) | VIIRS connector shape available; NOAA STAR F-factor THREDDS URL pending verification; MODIS planned | None for public VIIRS THREDDS; MODIS source design pending |
 | RadCalNet | Available (official JSON API; checked by hand against the live portal, 2026-07) | Free portal account; see [credentials](docs/credentials.md) |
