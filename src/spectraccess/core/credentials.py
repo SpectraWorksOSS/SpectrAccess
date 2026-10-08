@@ -12,7 +12,7 @@ import requests
 PROVIDERS = {
     "cdse": ("password",), "ads": ("token",),
     "earthdata": ("password", "token"), "usgs": ("password",),
-    "radcalnet": ("password",),
+    "radcalnet": ("password",), "eumetsat": ("password",),
 }
 
 

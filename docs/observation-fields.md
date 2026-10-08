@@ -60,3 +60,13 @@ retain the published scaled reflectance (`rho*cos(SZA)`); uncertainty
 indices retain their nonlinear provider definition. Cloud products keep
 their own geometry, timing and provider uncertainty fields. Filename
 collection tokens and CMR collection versions are separate metadata.
+
+For [MTG-FCI](fci-eumetsat.md), each repeat cycle remains a separate granule
+row. L1c `<channel>_time` is provider pixel acquisition time on that channel's
+native grid, retaining epoch units and calendar. L2 cloud products expose
+their granule interval and `pixel_time_available=False`. The provider
+catalogue may omit footprint geometry; targets retain the published coverage
+declaration, while image arrays carry scan angles and projection parameters.
+Radiometric noise lookup tables keep independent channel dimensions and
+their provider packing metadata. `unc_definition` describes those tables
+when present, without assigning a scalar uncertainty to the repeat cycle.

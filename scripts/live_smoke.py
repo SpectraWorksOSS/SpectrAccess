@@ -458,6 +458,53 @@ def smoke_viirs_earthaccess() -> None:
         print(f'VIIRS Earthdata: discover/fetch/read passed: {target.title}')
 
 
+def smoke_fci_eumetsat() -> None:
+    if not os.environ.get("EUMETSAT_KEY") or not os.environ.get("EUMETSAT_SECRET"):
+        print("FCI EUMETSAT smoke SKIP: EUMETSAT_KEY/EUMETSAT_SECRET not set")
+        return
+    from spectraccess.connectors.fci_eumetsat import FCIConnector
+
+    product_id = ("W_XX-EUMETSAT-Darmstadt,IMG+SAT,MTI1+FCI-1C-RRAD-FDHSI-FD--x-x---x_C_EUMT_"
+                  "20241001100223_IDPFI_OPE_20241001100007_20241001100928_N__C_0061_0000")
+    bbox = (4.8, 52.3, 4.95, 52.4)
+    channels = ("ir_105", "nir_13")
+    connector = FCIConnector(credentials=lambda: Credential(
+        "password", os.environ["EUMETSAT_SECRET"], os.environ["EUMETSAT_KEY"]))
+
+    def checked(stage, operation, *args, **kwargs):
+        try:
+            return operation(*args, **kwargs)
+        except Exception as exc:
+            status = getattr(exc, "status_code", None)
+            http = f"HTTP {status} ({status // 100}xx)" if isinstance(status, int) else "HTTP status unavailable"
+            print(f"FCI EUMETSAT smoke FAIL: {getattr(exc, 'stage', stage)}; {http}; {exc}", flush=True)
+            raise
+
+    print("FCI EUMETSAT discover: pinned 2024-10-01 10:00 repeat cycle", flush=True)
+    targets = checked("discover", connector.discover, bbox=bbox, start=datetime(2024, 10, 1, 10, tzinfo=timezone.utc),
+                                 end=datetime(2024, 10, 1, 10, 10, tzinfo=timezone.utc),
+                                 products=("l1c",), limit=10)
+    target = next((target for target in targets if target.product_id == product_id), None)
+    if target is None:
+        raise RuntimeError("pinned FCI repeat cycle absent from catalogue discovery")
+    with tempfile.TemporaryDirectory() as tmp:
+        print("FCI EUMETSAT fetch: intersecting body entries and trailer", flush=True)
+        result = checked("fetch", connector.fetch, target, dest=tmp, bbox=bbox, channels=channels)
+        print("FCI EUMETSAT read: native radiance, acquisition time and quality", flush=True)
+        ds = checked("read", connector.read, result, channels=channels)
+        expected = [name for channel in channels for name in (channel, channel + "_time", channel + "_pixel_quality")]
+        if any(name not in ds or ds[name].size == 0 for name in expected):
+            raise RuntimeError("FCI real fetch/read missing radiance, pixel time or quality")
+        if any(not bool(ds[channel].notnull().any()) for channel in channels):
+            raise RuntimeError("FCI real fetch/read returned no valid radiances")
+        if any(not bool(ds[channel + "_time"].notnull().any()) for channel in channels):
+            raise RuntimeError("FCI real fetch/read returned no valid acquisition times")
+        frame = checked("canonical parse", connector.parse_canonical, result, channels=channels)
+        if frame.empty or frame.attrs.get("spectraccess_schema_version") != "1.0":
+            raise RuntimeError("FCI smoke returned no validated canonical repeat cycle")
+        print(f"FCI EUMETSAT: discover, filtered fetch, canonical parse and native read passed: {target.title}")
+
+
 def main() -> int:
     connector = sys.argv[1] if len(sys.argv) > 1 else ""
     if connector == "gsics":
@@ -482,6 +529,8 @@ def main() -> int:
         smoke_slstr_cdse()
     elif connector == "viirs_earthaccess":
         smoke_viirs_earthaccess()
+    elif connector == "fci_eumetsat":
+        smoke_fci_eumetsat()
     elif connector == "ngl_gnss":
         smoke_ngl_gnss()
     elif connector == "cams_pressure":
