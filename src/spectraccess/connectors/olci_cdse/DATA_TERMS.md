@@ -23,9 +23,12 @@ read from `baselineCollection`, not guessed from a current release number.
 Files are decoded using their own scale factors, units and fill values.
 
 The default parser excludes INVALID, CLOUD, CLOUD_AMBIGUOUS, CLOUD_MARGIN,
-SNOW_ICE, SATURATED, SUSPECT and WVFAIL pixels. `include_flagged=True` preserves
+SNOW_ICE, SATURATED, SUSPECT and WV_FAIL pixels. `include_flagged=True` preserves
 these finite values with `qa.accepted=False`. Fill values are always omitted.
-Full flag definitions and active names accompany each row.
+Full source flag attributes and active names accompany each row, including
+unchanged provider labels, masks and descriptions. PDFS issue 2.4, Table 7-5
+(page 45), names `LQSF`; Table 7-6 (pages 47-48) defines `WV_FAIL` at bit 11.
+The reader uses `flag_meanings` and `flag_masks` on `LQSF` or `WQSF`.
 
 `IWV_unc` is carried as `unc_value`, with its NetCDF `long_name` retained
 in `unc_definition`. The product format specification (section 4.2.1.1;

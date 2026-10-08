@@ -48,7 +48,7 @@ WET_BIAS = {
     "reference": "https://doi.org/10.5194/amt-15-5129-2022",
 }
 _FILES = ("iwv.nc", "geo_coordinates.nc", "time_coordinates.nc", "lqsf.nc", "xfdumanifest.xml")
-_REJECT_FLAGS = {"INVALID", "CLOUD", "CLOUD_AMBIGUOUS", "CLOUD_MARGIN", "SNOW_ICE", "SATURATED", "SUSPECT", "WVFAIL"}
+_REJECT_FLAGS = {"INVALID", "CLOUD", "CLOUD_AMBIGUOUS", "CLOUD_MARGIN", "SNOW_ICE", "SATURATED", "SUSPECT", "WV_FAIL"}
 
 
 @dataclass(frozen=True)
@@ -211,6 +211,35 @@ def _manifest_version(path: Path) -> str | None:
     return None
 
 
+def _quality_flags(dataset: xr.Dataset, shape: tuple[int, ...]):
+    """Use source CF flag definitions; PDFS 2.4 table 7-6 names WV_FAIL."""
+    for name in ("LQSF", "WQSF"):
+        if name not in dataset:
+            continue
+        variable = dataset[name]
+        meanings = variable.attrs.get("flag_meanings")
+        masks = variable.attrs.get("flag_masks")
+        if not isinstance(meanings, str) or masks is None or variable.shape != shape:
+            continue
+        labels = meanings.split()
+        # NetCDF readers expose numeric vector attributes; some files use text.
+        try:
+            entries = masks.split() if isinstance(masks, str) else np.asarray(masks).reshape(-1)
+            numbers = [int(mask) for mask in entries]
+        except (TypeError, ValueError, OverflowError):
+            continue
+        if (not labels or len(labels) != len(numbers) or len(set(labels)) != len(labels)
+                or any(mask <= 0 for mask in numbers) or not _REJECT_FLAGS.issubset(labels)):
+            continue
+        return variable, dict(zip(labels, numbers))
+    found = "; ".join(
+        f"{name} attributes=[{', '.join(sorted(variable.attrs))}]"
+        for name, variable in dataset.variables.items()
+    )
+    raise ValueError("OLCI QA lacks the documented flag definitions or matching pixel shape; "
+                     f"found variables: {found}; dataset attribute keys=[{', '.join(sorted(dataset.attrs))}]")
+
+
 def _parse_product(path: Path, *, target: OLCITarget | None, source_url: str | None,
                    retrieved_at: datetime | None, bbox: tuple[float, float, float, float] | None,
                    include_flagged: bool) -> pd.DataFrame:
@@ -227,14 +256,13 @@ def _parse_product(path: Path, *, target: OLCITarget | None, source_url: str | N
             raise ValueError(f"unexpected IWV units {units!r}")
         if geo["latitude"].shape != value.shape or geo["longitude"].shape != value.shape:
             raise ValueError("OLCI geolocation shape does not match IWV")
-        qa = flags["LQSF"]
-        if qa.shape != value.shape:
-            raise ValueError("OLCI QA shape does not match IWV")
-        meanings = qa.attrs.get("flag_meanings", "").split()
-        masks = qa.attrs.get("flag_masks", [])
-        if not meanings or len(meanings) != len(masks) or not _REJECT_FLAGS.issubset(meanings):
-            raise ValueError("OLCI QA lacks the documented flag definitions")
-        flag_defs = dict(zip(meanings, (int(m) for m in masks)))
+        qa, flag_defs = _quality_flags(flags, value.shape)
+        # Preserve provider labels, masks and descriptions; array containers
+        # become lists so QA metadata remains JSON-compatible.
+        flag_attributes = {
+            key: val.tolist() if isinstance(val, np.ndarray) else val.item() if isinstance(val, np.generic) else deepcopy(val)
+            for key, val in qa.attrs.items()
+        }
         stamp = times["time_stamp"]
         if stamp.size != value.shape[0] or not np.issubdtype(stamp.dtype, np.datetime64):
             raise ValueError("OLCI line time_stamp must decode to one datetime per row")
@@ -282,7 +310,8 @@ def _parse_product(path: Path, *, target: OLCITarget | None, source_url: str | N
                        published_bias=deepcopy(WET_BIAS), product_type=PRODUCT_TYPE,
                        pixel_row=i, pixel_column=j,
                        qa={"value": flag_value, "flags": active, "accepted": accepted,
-                           "flag_masks": flag_defs},
+                           "flag_masks": flag_defs, "flag_variable": qa.name,
+                           "flag_attributes": deepcopy(flag_attributes)},
                        pixel_center_geometry={"type": "Point", "coordinates": [lon, lat]})
             if target is not None:
                 row.update(product_id=target.product_id, product_title=target.title,

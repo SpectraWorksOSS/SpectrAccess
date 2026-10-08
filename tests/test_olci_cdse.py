@@ -179,3 +179,51 @@ def test_unpublished_uncertainty_stays_unknown(tmp_path):
     assert frame.unc_status.eq("unknown").all()
     assert frame.unc_definition.isna().all()
     assert frame.unc_k.isna().all()
+
+
+@pytest.mark.parametrize("variable_name,text_masks", [("LQSF", False), ("WQSF", False), ("LQSF", True)])
+def test_source_flag_layout_and_metadata_are_preserved(tmp_path, variable_name, text_masks):
+    product = tmp_path / "synthetic.SEN3"
+    shutil.copytree(PRODUCT, product)
+    with xr.open_dataset(product / "lqsf.nc", decode_cf=False) as ds:
+        modified = ds.load().rename({"LQSF": variable_name})
+    attrs = modified[variable_name].attrs
+    if text_masks:
+        attrs["flag_masks"] = " ".join(str(int(mask)) for mask in attrs["flag_masks"])
+    attrs["flag_descriptions"] = "Fixture source descriptions preserved exactly"
+    modified.to_netcdf(product / "lqsf.nc", engine="h5netcdf")
+    frame = OLCICDSEConnector().parse(str(product), include_flagged=True)
+    source = frame.qa.iloc[0]
+    assert source["flag_variable"] == variable_name
+    assert source["flag_attributes"]["flag_meanings"] == attrs["flag_meanings"]
+    assert source["flag_attributes"]["flag_descriptions"] == attrs["flag_descriptions"]
+    expected = attrs["flag_masks"] if text_masks else attrs["flag_masks"].tolist()
+    assert source["flag_attributes"]["flag_masks"] == expected
+    assert source["flag_masks"]["WV_FAIL"] == 1 << 11
+    assert any("WV_FAIL" in qa["flags"] and not qa["accepted"] for qa in frame.qa)
+
+
+@pytest.mark.parametrize("layout", ["missing_attributes", "unexpected_variable", "bad_masks"])
+def test_flag_layout_error_reports_names_without_values(tmp_path, layout):
+    product = tmp_path / "synthetic.SEN3"
+    shutil.copytree(PRODUCT, product)
+    with xr.open_dataset(product / "lqsf.nc", decode_cf=False) as ds:
+        modified = ds.load()
+    variable = "LQSF"
+    if layout == "missing_attributes":
+        modified.LQSF.attrs.clear()
+    elif layout == "unexpected_variable":
+        modified = modified.rename({"LQSF": "provider_quality"})
+        variable = "provider_quality"
+    else:
+        modified.LQSF.attrs["flag_masks"] = "private-fixture-value"
+    modified[variable].attrs["provider_note"] = "private-fixture-value"
+    modified.attrs["source_title"] = "private-fixture-value"
+    modified.to_netcdf(product / "lqsf.nc", engine="h5netcdf")
+    with pytest.raises(ValueError, match="OLCI QA") as error:
+        OLCICDSEConnector().parse(str(product))
+    message = str(error.value)
+    assert variable in message
+    assert "provider_note" in message
+    assert "source_title" in message
+    assert "private-fixture-value" not in message
