@@ -144,12 +144,47 @@ def _path(result, entry):
     return result.path / result.local_files.get(entry, entry)
 
 
-def _provider_failure(exc, stage):
-    status = (getattr(exc, "extra_info", None) or {}).get("status")
-    if status in (401, 403):
-        return CredentialRejected("eumetsat", "credential source")
+class FCIProviderError(RuntimeError):
+    """Value-free provider failure with HTTP status and failing stage."""
+    def __init__(self, message, *, status_code, stage):
+        super().__init__(message)
+        self.status_code, self.stage = status_code, stage
+
+
+class FCIAuthorizationError(FCIProviderError):
+    """An authenticated EUMETSAT account lacks collection access."""
+    def __init__(self, collection, *, status_code, stage):
+        self.collection = collection
+        super().__init__(
+            f"FCI EUMETSAT account is not authorised for collection {collection} "
+            f"(HTTP {status_code}). Check the collection licence. The EUMETSAT Data Store FAQ "
+            "says licence changes reach the Data Store after the next Data Store login, "
+            "and propagation can take up to an hour.", status_code=status_code, stage=stage)
+
+
+def _http_status(exc):
+    seen = set()
+    while exc is not None and id(exc) not in seen:
+        seen.add(id(exc))
+        response = getattr(exc, "response", None)
+        status = (getattr(response, "status_code", None) or
+                  (getattr(exc, "extra_info", None) or {}).get("status"))
+        if isinstance(status, int):
+            return status
+        exc = exc.__cause__ or exc.__context__
+    return None
+
+
+def _provider_failure(exc, stage, collection=None):
+    status = _http_status(exc)
+    if status in (401, 403) and collection is not None:
+        return FCIAuthorizationError(collection, status_code=status, stage=stage)
+    if status in (401, 403) and stage == "token authentication":
+        failure = CredentialRejected("eumetsat", "credential source")
+        failure.status_code, failure.stage = status, stage
+        return failure
     detail = f" (HTTP {status})" if isinstance(status, int) else ""
-    return RuntimeError(f"FCI EUMETSAT {stage} failed{detail}")
+    return FCIProviderError(f"FCI EUMETSAT {stage} failed{detail}", status_code=status, stage=stage)
 
 
 class _EntryRange(io.RawIOBase):
@@ -345,6 +380,7 @@ class FCIConnector(Connector):
             failure = provider_error("eumetsat", credentials if credentials is not None else self.credentials,
                                      exc, credential, RuntimeError)
             if isinstance(failure, CredentialRejected):
+                failure.status_code, failure.stage = _http_status(exc), "token authentication"
                 raise failure from None
             raise _provider_failure(exc, "token authentication") from None
 
@@ -371,7 +407,7 @@ class FCIConnector(Connector):
                     targets.append(FCITarget(identifier, collection, identifier, url, datetime.now(timezone.utc),
                                              raw, bbox, _utc(product.sensing_start), _utc(product.sensing_end)))
         except Exception as exc:
-            raise _provider_failure(exc, "catalogue query") from None
+            raise _provider_failure(exc, "catalogue query", collection) from None
         return targets
 
     def fetch(self, target, *, dest=None, bbox=None, channels=CHANNELS, credentials=None):
@@ -414,7 +450,7 @@ class FCIConnector(Connector):
                 downloaded.append(filename)
                 local_files[filename] = local_name
         except Exception as exc:
-            raise _provider_failure(exc, "entry fetch") from None
+            raise _provider_failure(exc, "entry fetch", target.collection) from None
         return FCIResult(path, target, datetime.now(timezone.utc), bbox, tuple(downloaded), local_files)
 
     def parse(self, result, **kwargs):

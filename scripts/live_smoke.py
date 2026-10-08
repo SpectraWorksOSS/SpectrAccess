@@ -430,8 +430,18 @@ def smoke_fci_eumetsat() -> None:
     channels = ("ir_105", "nir_13")
     connector = FCIConnector(credentials=lambda: Credential(
         "password", os.environ["EUMETSAT_SECRET"], os.environ["EUMETSAT_KEY"]))
+
+    def checked(stage, operation, *args, **kwargs):
+        try:
+            return operation(*args, **kwargs)
+        except Exception as exc:
+            status = getattr(exc, "status_code", None)
+            http = f"HTTP {status} ({status // 100}xx)" if isinstance(status, int) else "HTTP status unavailable"
+            print(f"FCI EUMETSAT smoke FAIL: {getattr(exc, 'stage', stage)}; {http}", flush=True)
+            raise
+
     print("FCI EUMETSAT discover: pinned 2024-10-01 10:00 repeat cycle", flush=True)
-    targets = connector.discover(bbox=bbox, start=datetime(2024, 10, 1, 10, tzinfo=timezone.utc),
+    targets = checked("discover", connector.discover, bbox=bbox, start=datetime(2024, 10, 1, 10, tzinfo=timezone.utc),
                                  end=datetime(2024, 10, 1, 10, 10, tzinfo=timezone.utc),
                                  products=("l1c",), limit=10)
     target = next((target for target in targets if target.product_id == product_id), None)
@@ -439,9 +449,9 @@ def smoke_fci_eumetsat() -> None:
         raise RuntimeError("pinned FCI repeat cycle absent from catalogue discovery")
     with tempfile.TemporaryDirectory() as tmp:
         print("FCI EUMETSAT fetch: intersecting body entries and trailer", flush=True)
-        result = connector.fetch(target, dest=tmp, bbox=bbox, channels=channels)
+        result = checked("fetch", connector.fetch, target, dest=tmp, bbox=bbox, channels=channels)
         print("FCI EUMETSAT read: native radiance, acquisition time and quality", flush=True)
-        ds = connector.read(result, channels=channels)
+        ds = checked("read", connector.read, result, channels=channels)
         expected = [name for channel in channels for name in (channel, channel + "_time", channel + "_pixel_quality")]
         if any(name not in ds or ds[name].size == 0 for name in expected):
             raise RuntimeError("FCI real fetch/read missing radiance, pixel time or quality")
@@ -449,7 +459,7 @@ def smoke_fci_eumetsat() -> None:
             raise RuntimeError("FCI real fetch/read returned no valid radiances")
         if any(not bool(ds[channel + "_time"].notnull().any()) for channel in channels):
             raise RuntimeError("FCI real fetch/read returned no valid acquisition times")
-        frame = connector.parse_canonical(result, channels=channels)
+        frame = checked("canonical parse", connector.parse_canonical, result, channels=channels)
         if frame.empty or frame.attrs.get("spectraccess_schema_version") != "1.0":
             raise RuntimeError("FCI smoke returned no validated canonical repeat cycle")
         print(f"FCI EUMETSAT: discover, filtered fetch, canonical parse and native read passed: {target.title}")

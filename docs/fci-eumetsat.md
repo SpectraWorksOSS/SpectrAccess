@@ -25,6 +25,14 @@ HTTP 401/403 token rejection raises `CredentialRejected`. A filter on EUMDAC's
 logger redacts upstream token-status and bearer-request records, including
 at DEBUG, without changing the user's log level.
 
+After token authentication, HTTP 401/403 catalogue or product/entry access
+raises `FCIAuthorizationError`, naming the collection and preserving only the
+HTTP status and failing stage. Check the account's collection licence: the
+EUMETSAT [Data Store FAQ](https://user.eumetsat.int/resources/user-guides/frequently-asked-questions-for-data-store)
+advises logging out, logging in again and waiting an hour for licence changes
+to activate. The live smoke
+prints the failing stage and HTTP status/class without response values or headers.
+
 Ten-minute L1c cycles are EUMETSAT Recommended Data. Retrospective access
 after at least one hour is Without Charge; original numerical data have
 redistribution restrictions. Hourly L1 and derived L2 products are Core Data

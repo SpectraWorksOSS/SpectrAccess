@@ -51,8 +51,10 @@ class DataStoreHTTP:
     """
     token = "synthetic-bearer-never-log"
 
-    def __init__(self, fixture, monkeypatch, *, ignore_range=False, token_status=200):
+    def __init__(self, fixture, monkeypatch, *, ignore_range=False, token_status=200,
+                 access_status=200, denied_route="/entry"):
         self.fixture, self.ignore_range, self.token_status = fixture, ignore_range, token_status
+        self.access_status, self.denied_route = access_status, denied_route
         self.calls, self.streams = [], []
         root = Path(__file__).parent / "fixtures/fci_eumetsat"
         self.search = json.loads((root / "search.json").read_text())
@@ -69,6 +71,11 @@ class DataStoreHTTP:
         if path == "/token":
             response.status_code = self.token_status
             payload = {"access_token": self.token, "expires_in": 86400} if self.token_status == 200 else {"error": "invalid_client"}
+        elif self.access_status != 200 and path.endswith(self.denied_route):
+            response.status_code = self.access_status
+            # Error bodies and headers must never reach connector/smoke diagnostics.
+            payload = {"title": self.token, "description": CREDENTIAL.secret}
+            response.headers["X-Private-Value"] = CREDENTIAL.account
         elif path.endswith("/osdd"):
             response._content = self.osdd
             return response
@@ -249,16 +256,60 @@ def test_missing_credentials_no_environment_fallback(monkeypatch):
         FCIConnector().discover(bbox=BBOX, start=START, end=START, products=("l1c",))
 
 
-def test_auth_error_redacts_keys(fixture, monkeypatch):
-    http = DataStoreHTTP(fixture, monkeypatch, token_status=401)
+@pytest.mark.parametrize("status", [401, 403])
+def test_auth_error_redacts_keys(fixture, monkeypatch, status):
+    http = DataStoreHTTP(fixture, monkeypatch, token_status=status)
     # The same real raise_for_status used by AccessToken raises HTTPError.
     with pytest.raises(requests.HTTPError) as upstream:
         http.send(requests.Request("POST", "https://api.eumetsat.int/token").prepare()).raise_for_status()
-    assert upstream.value.response.status_code == 401
+    assert upstream.value.response.status_code == status
     with pytest.raises(CredentialRejected) as exc:
         FCIConnector(credentials=CREDENTIAL)._store()
     assert CREDENTIAL.account not in str(exc.value) and CREDENTIAL.secret not in str(exc.value)
     assert exc.value.__suppress_context__
+    assert exc.value.status_code == status and exc.value.stage == "token authentication"
+
+
+@pytest.mark.parametrize("status", [401, 403])
+@pytest.mark.parametrize("route, stage", [("/entry", "entry fetch"),
+    ("/products/cycle-1", "entry fetch"), ("/metadata", "catalogue query")])
+def test_authenticated_collection_access_is_not_credential_rejection(fixture, tmp_path, monkeypatch, status, route, stage):
+    http = DataStoreHTTP(fixture, monkeypatch, access_status=status, denied_route=route)
+    connector = FCIConnector(credentials=CREDENTIAL)
+    with pytest.raises(mod.FCIAuthorizationError) as exc:
+        targets = connector.discover(bbox=BBOX, start=START, end=START + timedelta(minutes=20), products=("l1c",))
+        connector.fetch(targets[0], dest=tmp_path, channels=("ir_105",))
+    error = exc.value
+    assert not isinstance(error, CredentialRejected)
+    assert error.status_code == status and error.stage == stage
+    assert error.collection == mod.COLLECTIONS["l1c"]
+    assert "not authorised" in str(error) and "EO:EUM:DAT:0662" in str(error)
+    assert "licence" in str(error) and "next Data Store login" in str(error) and "up to an hour" in str(error)
+    for value in (http.token, CREDENTIAL.secret, CREDENTIAL.account):
+        assert value not in str(error) and value not in str(error.__dict__)
+    assert error.__suppress_context__
+    assert not list(tmp_path.rglob("*.nc")) and not list(tmp_path.rglob("*.part"))
+
+
+@pytest.mark.parametrize("status", [401, 403])
+@pytest.mark.parametrize("token_rejected", [False, True])
+def test_smoke_reports_sanitised_http_stage(fixture, monkeypatch, capsys, status, token_rejected):
+    http = DataStoreHTTP(fixture, monkeypatch, token_status=status if token_rejected else 200,
+                         access_status=200 if token_rejected else status)
+    monkeypatch.setenv("EUMETSAT_KEY", CREDENTIAL.account)
+    monkeypatch.setenv("EUMETSAT_SECRET", CREDENTIAL.secret)
+    smoke = runpy.run_path(str(Path(__file__).resolve().parents[1] / "scripts/live_smoke.py"))["smoke_fci_eumetsat"]
+    pinned_id = next(value for value in smoke.__code__.co_consts if isinstance(value, str) and value.startswith("W_XX-"))
+    http.search["features"][0]["id"] = pinned_id
+    expected_error = CredentialRejected if token_rejected else mod.FCIAuthorizationError
+    with pytest.raises(expected_error):
+        smoke()
+    output = capsys.readouterr().out
+    stage = "token authentication" if token_rejected else "entry fetch"
+    assert f"FCI EUMETSAT smoke FAIL: {stage}; HTTP {status} (4xx)" in output
+    assert "passed:" not in output and "headers" not in output
+    for value in (http.token, CREDENTIAL.secret, CREDENTIAL.account):
+        assert value not in output
 
 
 @pytest.mark.parametrize("kind, collection, variable", [("CLM", "cloud_mask", "cloud_state"),
