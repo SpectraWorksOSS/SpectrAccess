@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import io
 import itertools
+import logging
+import os
 import re
 import shutil
 from copy import deepcopy
@@ -17,11 +19,18 @@ import numpy as np
 import xarray as xr
 
 from spectraccess.core.connector import Connector
-from spectraccess.core.credentials import CredentialSource, CredentialRejected, resolve
+from spectraccess.core.credentials import CredentialSource, CredentialRejected, provider_error, resolve
 from spectraccess.core.schema import frame_from_records
 
 try:
     import eumdac
+    import hdf5plugin  # Registers the provider's FCIDECOMP (JPEG-LS) HDF5 filter.
+    # NetCDF4 can use a separate HDF5 library from h5py (notably in wheels).
+    # Preserve caller plugin directories while exposing the bundled filter there.
+    _plugin_paths = os.environ.get("HDF5_PLUGIN_PATH", "").split(os.pathsep)
+    if hdf5plugin.PLUGIN_PATH not in _plugin_paths:
+        os.environ["HDF5_PLUGIN_PATH"] = os.pathsep.join(
+            [path for path in _plugin_paths if path] + [hdf5plugin.PLUGIN_PATH])
     import h5py
     import h5netcdf
     import satpy
@@ -41,6 +50,31 @@ NOISE_DEFINITION = ("Provider radiometric noise model lookup table: radiometric_
                     "not a per-pixel standard uncertainty or a coverage factor.")
 _SUFFIX = re.compile(r"_(\d{14})_(\d{14})_([^_]+)_([^_]*)_([^_]+)_(\d{4})_(\d{4})\.nc$")
 _QA_FIELDS = ("product_quality", "product_completeness", "product_timeliness")
+
+
+class _EumdacRedaction(logging.Filter):
+    """Sanitize upstream token and request records before any handler sees them."""
+    def filter(self, record):
+        message = record.getMessage()
+        # EUMDAC token renewal records contain both current and previous tokens.
+        if record.module == "token" and any(text in message for text in (
+                "Current token ", "starting renewal of ", "Received/previous ",
+                "Could not get fresh token from server")):
+            message = "EUMDAC token status: <redacted>"
+        message = re.sub(r"(?i)(Bearer\s+)[^\s'\"},]+", r"\1<redacted>", message)
+        message = re.sub(r"(?i)(access_token=)[^&\s'\"]+", r"\1<redacted>", message)
+        record.msg, record.args = message, ()
+        return True
+
+
+def _install_log_redaction():
+    # token.py and request.py both emit on this same upstream logger.
+    logger = logging.getLogger("eumdac")
+    if not any(isinstance(item, _EumdacRedaction) for item in logger.filters):
+        logger.addFilter(_EumdacRedaction())
+
+
+_install_log_redaction()
 
 
 def _utc(value):
@@ -308,6 +342,10 @@ class FCIConnector(Connector):
             str(token)
             return eumdac.DataStore(token)
         except Exception as exc:
+            failure = provider_error("eumetsat", credentials if credentials is not None else self.credentials,
+                                     exc, credential, RuntimeError)
+            if isinstance(failure, CredentialRejected):
+                raise failure from None
             raise _provider_failure(exc, "token authentication") from None
 
     def discover(self, *, bbox, start: date | datetime, end: date | datetime,

@@ -1,0 +1,114 @@
+{
+  "type": "FeatureCollection",
+  "totalResults": 2,
+  "startIndex": 0,
+  "itemsPerPage": 100,
+  "features": [
+    {
+      "type": "Feature",
+      "id": "cycle-1",
+      "geometry": {},
+      "properties": {
+        "identifier": "cycle-1",
+        "parentIdentifier": "EO:EUM:DAT:0662",
+        "date": "2024-05-01T10:00:00Z/2024-05-01T10:09:30Z",
+        "updated": "2024-05-01T10:30:00Z",
+        "extraInformation": {
+          "md5": "00000000000000000000000000000000"
+        },
+        "productInformation": {
+          "productType": "MTIFCI1CRRADFDHSI",
+          "size": 123456
+        },
+        "acquisitionInformation": [
+          {
+            "platform": {
+              "platformShortName": "MTI1"
+            },
+            "instrument": {
+              "instrumentShortName": "FCI"
+            },
+            "acquisitionParameters": {
+              "mtgCoverage": {
+                "majorRegionCoverage": "FD",
+                "repeatCycleIdentifier": "61"
+              }
+            }
+          }
+        ],
+        "links": {
+          "sip-entries": [
+            {
+              "title": "W_XX-EUMETSAT-Darmstadt,IMG+SAT,MTI1+FCI-1C-RRAD-FDHSI-FD--CHK-BODY--DIS-NC4E_C_EUMT_20240501101000_IDPF_OPE_20240501100000_20240501100930_N__C_0061_0001.nc",
+              "href": "https://api.eumetsat.int/data/download/1.0.0/collections/EO%3AEUM%3ADAT%3A0662/products/cycle-1/entry?name=W_XX-EUMETSAT-Darmstadt,IMG+SAT,MTI1+FCI-1C-RRAD-FDHSI-FD--CHK-BODY--DIS-NC4E_C_EUMT_20240501101000_IDPF_OPE_20240501100000_20240501100930_N__C_0061_0001.nc",
+              "type": "application/x-netcdf"
+            },
+            {
+              "title": "W_XX-EUMETSAT-Darmstadt,IMG+SAT,MTI1+FCI-1C-RRAD-FDHSI-FD--CHK-BODY--DIS-NC4E_C_EUMT_20240501101000_IDPF_OPE_20240501100000_20240501100930_N__C_0061_0003.nc",
+              "href": "https://api.eumetsat.int/data/download/1.0.0/collections/EO%3AEUM%3ADAT%3A0662/products/cycle-1/entry?name=W_XX-EUMETSAT-Darmstadt,IMG+SAT,MTI1+FCI-1C-RRAD-FDHSI-FD--CHK-BODY--DIS-NC4E_C_EUMT_20240501101000_IDPF_OPE_20240501100000_20240501100930_N__C_0061_0003.nc",
+              "type": "application/x-netcdf"
+            },
+            {
+              "title": "W_XX-EUMETSAT-Darmstadt,IMG+SAT,MTI1+FCI-1C-RRAD-FDHSI-FD--CHK-TRAIL--DIS-NC4E_C_EUMT_20240501101000_IDPF_OPE_20240501100000_20240501100930_N__C_0061_0041.nc",
+              "href": "https://api.eumetsat.int/data/download/1.0.0/collections/EO%3AEUM%3ADAT%3A0662/products/cycle-1/entry?name=W_XX-EUMETSAT-Darmstadt,IMG+SAT,MTI1+FCI-1C-RRAD-FDHSI-FD--CHK-TRAIL--DIS-NC4E_C_EUMT_20240501101000_IDPF_OPE_20240501100000_20240501100930_N__C_0061_0041.nc",
+              "type": "application/x-netcdf"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "cycle-2",
+      "geometry": {},
+      "properties": {
+        "identifier": "cycle-2",
+        "parentIdentifier": "EO:EUM:DAT:0662",
+        "date": "2024-05-01T10:10:00Z/2024-05-01T10:19:30Z",
+        "updated": "2024-05-01T10:30:00Z",
+        "extraInformation": {
+          "md5": "00000000000000000000000000000000"
+        },
+        "productInformation": {
+          "productType": "MTIFCI1CRRADFDHSI",
+          "size": 123456
+        },
+        "acquisitionInformation": [
+          {
+            "platform": {
+              "platformShortName": "MTI1"
+            },
+            "instrument": {
+              "instrumentShortName": "FCI"
+            },
+            "acquisitionParameters": {
+              "mtgCoverage": {
+                "majorRegionCoverage": "FD",
+                "repeatCycleIdentifier": "62"
+              }
+            }
+          }
+        ],
+        "links": {
+          "sip-entries": [
+            {
+              "title": "W_XX-EUMETSAT-Darmstadt,IMG+SAT,MTI1+FCI-1C-RRAD-FDHSI-FD--CHK-BODY--DIS-NC4E_C_EUMT_20240501101000_IDPF_OPE_20240501100000_20240501100930_N__C_0061_0001.nc",
+              "href": "https://api.eumetsat.int/data/download/1.0.0/collections/EO%3AEUM%3ADAT%3A0662/products/cycle-2/entry?name=W_XX-EUMETSAT-Darmstadt,IMG+SAT,MTI1+FCI-1C-RRAD-FDHSI-FD--CHK-BODY--DIS-NC4E_C_EUMT_20240501101000_IDPF_OPE_20240501100000_20240501100930_N__C_0061_0001.nc",
+              "type": "application/x-netcdf"
+            },
+            {
+              "title": "W_XX-EUMETSAT-Darmstadt,IMG+SAT,MTI1+FCI-1C-RRAD-FDHSI-FD--CHK-BODY--DIS-NC4E_C_EUMT_20240501101000_IDPF_OPE_20240501100000_20240501100930_N__C_0061_0003.nc",
+              "href": "https://api.eumetsat.int/data/download/1.0.0/collections/EO%3AEUM%3ADAT%3A0662/products/cycle-2/entry?name=W_XX-EUMETSAT-Darmstadt,IMG+SAT,MTI1+FCI-1C-RRAD-FDHSI-FD--CHK-BODY--DIS-NC4E_C_EUMT_20240501101000_IDPF_OPE_20240501100000_20240501100930_N__C_0061_0003.nc",
+              "type": "application/x-netcdf"
+            },
+            {
+              "title": "W_XX-EUMETSAT-Darmstadt,IMG+SAT,MTI1+FCI-1C-RRAD-FDHSI-FD--CHK-TRAIL--DIS-NC4E_C_EUMT_20240501101000_IDPF_OPE_20240501100000_20240501100930_N__C_0061_0041.nc",
+              "href": "https://api.eumetsat.int/data/download/1.0.0/collections/EO%3AEUM%3ADAT%3A0662/products/cycle-2/entry?name=W_XX-EUMETSAT-Darmstadt,IMG+SAT,MTI1+FCI-1C-RRAD-FDHSI-FD--CHK-TRAIL--DIS-NC4E_C_EUMT_20240501101000_IDPF_OPE_20240501100000_20240501100930_N__C_0061_0041.nc",
+              "type": "application/x-netcdf"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

@@ -1,8 +1,18 @@
 # MTG-FCI observations from EUMETSAT
 
 Install `pip install "spectraccess[fci]"` on Python 3.11 or later. The extra
-uses Satpy 0.60.0 (GPLv3 or later), EUMDAC 3.1 (MIT), and NetCDF/HDF5 reader
-dependencies. spectrAccess itself is Apache-2.0.
+uses Satpy 0.60.0 (GPLv3 or later), EUMDAC 3.1 (MIT), hdf5plugin (MIT), and
+NetCDF/HDF5 reader dependencies. hdf5plugin bundles filters with their own
+licences: the FCIDECOMP filter used here is Apache-2.0, and its CharLS codec
+is BSD-3-Clause. See [hdf5plugin licence information](https://hdf5plugin.readthedocs.io/en/stable/information.html#license).
+spectrAccess itself is Apache-2.0.
+
+The [FCI L1c data guide](https://user.eumetsat.int/resources/user-guides/mtg-fci-level-1c-data-guide#MTGFCIlevel1cdataguide-Specialcompressionofradiances,indexmapandqualityflags)
+specifies lossless JPEG-LS (CharLS) compression for radiance, index map and
+quality variables in files marked `JLS`. The connector imports hdf5plugin to
+register FCIDECOMP (HDF5 filter 32018) and appends its bundled plugin directory
+to `HDF5_PLUGIN_PATH`, preserving existing directories, so Satpy's NetCDF4
+backend can also decode compressed data.
 
 Create an [EUMETSAT account](https://user.eumetsat.int/) and obtain a consumer
 key and consumer secret from the [API key page](https://api.eumetsat.int/api-key).
@@ -11,6 +21,9 @@ and consumer secret at the hidden password prompt. Alternatively hand over
 `Credential("password", consumer_secret, consumer_key)` via `credentials=`.
 The connector reads no credential environment variables or EUMDAC login files.
 Authentication failures omit the consumer key and secret from exception text.
+HTTP 401/403 token rejection raises `CredentialRejected`. A filter on EUMDAC's
+logger redacts upstream token-status and bearer-request records, including
+at DEBUG, without changing the user's log level.
 
 Ten-minute L1c cycles are EUMETSAT Recommended Data. Retrospective access
 after at least one hour is Without Charge; original numerical data have

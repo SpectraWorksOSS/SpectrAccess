@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OpenSearchDescription xmlns="http://a9.com/-/spec/opensearch/1.1/" xmlns:parameters="http://a9.com/-/spec/opensearch/extensions/parameters/1.0/">
+  <ShortName>EUMETSAT synthetic FCI</ShortName>
+  <Url type="application/json" template="https://api.eumetsat.int/data/search-products/1.0.0/os?format=json">
+    <parameters:Parameter name="dtstart" value="{time:start?}" />
+    <parameters:Parameter name="dtend" value="{time:end?}" />
+    <parameters:Parameter name="bbox" value="{geo:box?}" />
+    <parameters:Parameter name="set" value="{eum:set?}" />
+  </Url>
+</OpenSearchDescription>

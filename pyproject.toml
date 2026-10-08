@@ -57,6 +57,7 @@ Issues = "https://github.com/SpectraWorksOSS/SpectrAccess/issues"
 
 [project.optional-dependencies]
 fci = [
+  "hdf5plugin>=6.0",
   "satpy==0.60.0",
   "netCDF4>=1.6",
   "h5netcdf>=1.3",

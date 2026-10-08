@@ -5,6 +5,7 @@ Run with the fci extra installed. No downloaded observation is used.
 from pathlib import Path
 
 import h5netcdf
+import hdf5plugin
 import numpy as np
 
 PROJECTION = {"grid_mapping_name": "geostationary", "semi_major_axis": 6378137.,
@@ -68,7 +69,9 @@ def generate(dest=None):
                 scalar(group, "end_position_row", count * n)
                 scalar(group, "start_position_column", 1)
                 scalar(group, "end_position_column", n)
-                rad = group.create_variable("effective_radiance", ("y", "x"), dtype="u2", fillvalue=65535)
+                # FCI L1c Data Guide: lossless JPEG-LS via FCIDECOMP, filter 32018.
+                rad = group.create_variable("effective_radiance", ("y", "x"), dtype="u2", fillvalue=65535,
+                                            compression=hdf5plugin.FciDecomp(), chunks=(n, n))
                 rad[:] = np.arange(n * n).reshape(n, n) % 8 + 1
                 rad.attrs.update(scale_factor=5., add_offset=-10., warm_scale_factor=2., warm_add_offset=-300.,
                                  units="mW.m-2.sr-1.(cm-1)-1", valid_range=np.array([0, 8191 if channel == "ir_38" else 4095], dtype="u2"),

@@ -1,13 +1,15 @@
 """Provider-layout fixtures exercise the installed Satpy and EUMDAC adapters."""
 import io
+import json
+import logging
 import runpy
-from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from types import SimpleNamespace
+from urllib.parse import parse_qs, unquote, urlparse
 
 import numpy as np
 import pytest
+import requests
 
 pytest.importorskip("satpy")
 pytest.importorskip("eumdac")
@@ -41,22 +43,71 @@ def result(fixture, names=None, collection=mod.COLLECTIONS["l1c"]):
     return FCIResult(fixture, target(collection=collection), START, BBOX, tuple(names))
 
 
-class LocalProduct:
-    def __init__(self, fixture, product_id="cycle-1", start=START):
-        self.fixture, self.product_id, self.sensing_start = fixture, product_id, start
-        self.sensing_end = start + timedelta(minutes=10)
-        self.metadata = target().raw
-        self.entries = tuple(p.name for p in fixture.glob("*.nc") if "-CHK-" in p.name)
-        self.calls = []
+class DataStoreHTTP:
+    """Only HTTPAdapter.send is stubbed; all EUMDAC APIs and parsing run intact.
 
-    def __str__(self):
-        return self.product_id
+    JSON follows the public browse/search GeoJSON and download metadata shape.
+    OpenSearch description is parsed by Collection to validate search parameters.
+    """
+    token = "synthetic-bearer-never-log"
 
-    @contextmanager
-    def open(self, *, entry, chunk=None):
-        self.calls.append((entry, chunk))
-        data = (self.fixture / entry).read_bytes()
-        yield io.BytesIO(data[slice(*chunk)] if chunk is not None else data)
+    def __init__(self, fixture, monkeypatch, *, ignore_range=False, token_status=200):
+        self.fixture, self.ignore_range, self.token_status = fixture, ignore_range, token_status
+        self.calls, self.streams = [], []
+        root = Path(__file__).parent / "fixtures/fci_eumetsat"
+        self.search = json.loads((root / "search.json").read_text())
+        self.metadata = json.loads((root / "metadata.json").read_text())
+        self.osdd = (root / "osdd.xml").read_bytes()
+        monkeypatch.setattr(requests.adapters.HTTPAdapter, "send", lambda _, request, **kw: self.send(request))
+
+    def send(self, request):
+        self.calls.append(request)
+        path = unquote(urlparse(request.url).path)
+        query = parse_qs(urlparse(request.url).query)
+        response = requests.Response()
+        response.request, response.url, response.status_code = request, request.url, 200
+        if path == "/token":
+            response.status_code = self.token_status
+            payload = {"access_token": self.token, "expires_in": 86400} if self.token_status == 200 else {"error": "invalid_client"}
+        elif path.endswith("/osdd"):
+            response._content = self.osdd
+            return response
+        elif path.endswith("/os"):
+            payload = self.search
+        elif path.endswith("/metadata"):
+            payload = self.metadata
+        elif "/browse/" in path and "/products/" in path:
+            product_id = path.rsplit("/", 1)[-1]
+            payload = next(f for f in self.search["features"] if f["id"] == product_id)
+        elif path.endswith("/entry"):
+            entry = query["name"][0]
+            data = (self.fixture / entry).read_bytes()
+            byte_range = request.headers.get("Range")
+            if byte_range and not self.ignore_range:
+                begin, end = map(int, byte_range.removeprefix("bytes=").split("-"))
+                data = data[begin:end + 1]
+                response.status_code = 206
+                response.headers["Content-Range"] = f"bytes {begin}-{end}/{(self.fixture / entry).stat().st_size}"
+            response.headers["Content-Disposition"] = f'attachment; filename="{entry}"'
+            class Stream(io.BytesIO):
+                bytes_read = 0
+                def read(self, size=-1):
+                    value = super().read(size)
+                    self.bytes_read += len(value)
+                    return value
+            response.raw = Stream(data)
+            self.streams.append(response.raw)
+            return response
+        else:
+            raise AssertionError(f"Unexpected HTTP route: {path}")
+        response._content = json.dumps(payload).encode()
+        response.headers["Content-Type"] = "application/json"
+        return response
+
+    @property
+    def entries_requested(self):
+        return [(parse_qs(urlparse(r.url).query)["name"][0], r.headers.get("Range"))
+                for r in self.calls if urlparse(r.url).path.endswith("/entry")]
 
 
 def test_spike_real_satpy(fixture):
@@ -154,31 +205,37 @@ def test_canonical_provider_observations(fixture):
 
 
 def test_entry_ranges_and_filtered_fetch(fixture, tmp_path, monkeypatch):
-    product = LocalProduct(fixture)
-    monkeypatch.setattr(FCIConnector, "_store", lambda *args: SimpleNamespace(get_product=lambda *args: product))
-    r = FCIConnector().fetch(target(), dest=tmp_path, bbox=(-.1, -.05, .1, -.005), channels=("ir_105",))
-    whole = [name for name, byte_range in product.calls if byte_range is None]
+    http = DataStoreHTTP(fixture, monkeypatch)
+    connector = FCIConnector(credentials=CREDENTIAL)
+    store = connector._store()
+    assert isinstance(store.get_collection(mod.COLLECTIONS["l1c"]), mod.eumdac.collection.Collection)
+    product = store.get_product(mod.COLLECTIONS["l1c"], "cycle-1")
+    assert isinstance(product, mod.eumdac.product.Product)
+    assert product.entries == tuple(http.search["features"][0]["properties"]["links"]["sip-entries"][i]["title"] for i in range(3))
+    targets = connector.discover(bbox=BBOX, start=START, end=START + timedelta(minutes=20), products=("l1c",))
+    r = connector.fetch(targets[0], dest=tmp_path, bbox=(-.1, -.05, .1, -.005), channels=("ir_105",))
+    whole = [name for name, byte_range in http.entries_requested if byte_range is None]
     assert GENERATOR["filename"]("BODY", 1) in whole
     assert GENERATOR["filename"]("BODY", 3) not in whole
     assert GENERATOR["filename"]("TRAIL", 41) in whole
     assert set(r.entries) == set(whole)
-    assert any(byte_range for _, byte_range in product.calls)
-    ds = FCIConnector().read(r, channels=("ir_105",))
-    assert ds.ir_105.size
+    assert any(byte_range for _, byte_range in http.entries_requested)
+    assert (GENERATOR["filename"]("BODY", 1), "bytes=0-63") in http.entries_requested
+    ds = connector.read(r, channels=("ir_105",))
+    assert ds.ir_105.shape == (2, 4) and ds.ir_105.values[0, 0] == -5
+    validate(connector.parse_canonical(r, channels=("ir_105",)))
 
 
 def test_discovery_preserves_ten_minute_cycles(fixture, monkeypatch):
-    products = [LocalProduct(fixture, "cycle-1"), LocalProduct(fixture, "cycle-2", START + timedelta(minutes=10))]
-    queries = []
-    def search(**kw):
-        queries.append(kw)
-        return iter(products)
-    monkeypatch.setattr(FCIConnector, "_store", lambda *args: SimpleNamespace(get_collection=lambda _: SimpleNamespace(search=search)))
-    targets = FCIConnector().discover(bbox=BBOX, start=START, end=START + timedelta(minutes=20), products=("l1c",))
+    http = DataStoreHTTP(fixture, monkeypatch)
+    targets = FCIConnector(credentials=CREDENTIAL).discover(bbox=BBOX, start=START, end=START + timedelta(minutes=20), products=("l1c",))
     assert [t.product_id for t in targets] == ["cycle-1", "cycle-2"]
     assert targets[1].start - targets[0].start == timedelta(minutes=10)
-    assert queries[0]["bbox"] == "-4.0,-4.0,4.0,4.0"
-    assert queries[0]["dtstart"] == START
+    query = next(parse_qs(urlparse(r.url).query) for r in http.calls if urlparse(r.url).path.endswith("/os"))
+    assert query["bbox"] == ["-4.0,-4.0,4.0,4.0"]
+    assert query["dtstart"] == [START.isoformat()]
+    assert targets[0].start == START and targets[0].end == START + timedelta(minutes=9, seconds=30)
+    assert targets[0].product_version == "synthetic-2"
     for t in targets:
         validate(target_to_canonical(t))
 
@@ -192,11 +249,12 @@ def test_missing_credentials_no_environment_fallback(monkeypatch):
         FCIConnector().discover(bbox=BBOX, start=START, end=START, products=("l1c",))
 
 
-def test_auth_error_redacts_keys(monkeypatch):
-    def reject(*args):
-        from eumdac.errors import EumdacError
-        raise EumdacError(f"{CREDENTIAL.account}:{CREDENTIAL.secret}", {"status": 401})
-    monkeypatch.setattr(mod.eumdac, "AccessToken", reject)
+def test_auth_error_redacts_keys(fixture, monkeypatch):
+    http = DataStoreHTTP(fixture, monkeypatch, token_status=401)
+    # The same real raise_for_status used by AccessToken raises HTTPError.
+    with pytest.raises(requests.HTTPError) as upstream:
+        http.send(requests.Request("POST", "https://api.eumetsat.int/token").prepare()).raise_for_status()
+    assert upstream.value.response.status_code == 401
     with pytest.raises(CredentialRejected) as exc:
         FCIConnector(credentials=CREDENTIAL)._store()
     assert CREDENTIAL.account not in str(exc.value) and CREDENTIAL.secret not in str(exc.value)
@@ -227,13 +285,45 @@ def test_l2_native_values_flags_time_unavailable(fixture, kind, collection, vari
     assert "unc_definition" not in frame
 
 
-def test_byte_range_refusal_does_not_download_cycle(fixture):
-    class IgnoringRange(LocalProduct):
-        @contextmanager
-        def open(self, *, entry, chunk=None):
-            yield io.BytesIO((self.fixture / entry).read_bytes())
+def test_byte_range_refusal_does_not_download_cycle(fixture, tmp_path, monkeypatch):
+    http = DataStoreHTTP(fixture, monkeypatch, ignore_range=True)
+    product = FCIConnector(credentials=CREDENTIAL)._store().get_product(mod.COLLECTIONS["l1c"], "cycle-1")
     with pytest.raises(RuntimeError, match="byte-range response"):
-        mod._EntryRange(IgnoringRange(fixture), GENERATOR["filename"]("BODY", 1))
+        mod._EntryRange(product, GENERATOR["filename"]("BODY", 1))
+    assert http.streams[0].bytes_read == 65 and http.streams[0].closed
+    with pytest.raises(RuntimeError, match="entry fetch failed"):
+        FCIConnector(credentials=CREDENTIAL).fetch(target(), dest=tmp_path, channels=("ir_105",))
+    assert all(byte_range == "bytes=0-63" for _, byte_range in http.entries_requested)
+    assert not list(tmp_path.rglob("*.nc")) and not list(tmp_path.rglob("*.part"))
+
+
+def test_compressed_provider_filter_through_read(fixture):
+    path = fixture / GENERATOR["filename"]("BODY", 1)
+    with mod.h5py.File(path, "r") as nc:
+        properties = nc["data/ir_105/measured/effective_radiance"].id.get_create_plist()
+        assert properties.get_filter(0)[0] == 32018
+    ds = FCIConnector().read(result(fixture), channels=("ir_105",))
+    assert ds.ir_105.values[0, 0] == -5 and np.isnan(ds.ir_105.values[3, 0])
+
+
+def test_debug_logging_redacts_real_eumdac_calls(fixture, tmp_path, monkeypatch, caplog):
+    http = DataStoreHTTP(fixture, monkeypatch)
+    logger = logging.getLogger("eumdac")
+    before = len(logger.filters)
+    level = logger.level
+    mod._install_log_redaction()
+    mod._install_log_redaction()
+    assert len(logger.filters) == before and logger.level == level
+    with caplog.at_level(logging.DEBUG, logger="eumdac"):
+        connector = FCIConnector(credentials=CREDENTIAL)
+        targets = connector.discover(bbox=BBOX, start=START, end=START + timedelta(minutes=20), products=("l1c",))
+        connector.fetch(targets[0], dest=tmp_path, channels=("ir_105",))
+    records = [r for r in caplog.records if r.name == "eumdac"]
+    assert any("EUMDAC token status: <redacted>" in r.getMessage() for r in records)
+    assert any("Bearer <redacted>" in r.getMessage() for r in records)
+    for record in records:
+        assert http.token not in record.getMessage() and http.token not in str(record.__dict__)
+    assert http.token not in caplog.text
 
 
 @pytest.mark.parametrize("bbox, present", [((-30., -10., 30., 10.), True),

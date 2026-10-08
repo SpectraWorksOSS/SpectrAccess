@@ -1,0 +1,14 @@
+{
+  "type": "Feature",
+  "properties": {
+    "productInformation": {
+      "productVersion": "synthetic-2",
+      "processingInformation": {
+        "processorVersion": "synthetic-1"
+      },
+      "qualityInformation": {
+        "qualityStatus": "NOMINAL"
+      }
+    }
+  }
+}
