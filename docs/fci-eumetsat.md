@@ -12,6 +12,12 @@ and consumer secret at the hidden password prompt. Alternatively hand over
 The connector reads no credential environment variables or EUMDAC login files.
 Authentication failures omit the consumer key and secret from exception text.
 
+Ten-minute L1c cycles are EUMETSAT Recommended Data. Retrospective access
+after at least one hour is Without Charge; original numerical data have
+redistribution restrictions. Hourly L1 and derived L2 products are Core Data
+under CC-BY-4.0. See the [data terms](../src/spectraccess/connectors/fci_eumetsat/DATA_TERMS.md)
+for the policy distinction and attribution requirements.
+
 ```python
 from datetime import datetime, timezone
 from spectraccess.connectors.fci_eumetsat import FCIConnector
