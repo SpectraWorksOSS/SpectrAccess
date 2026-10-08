@@ -20,6 +20,7 @@ from .overlap import (
     compare_candidate_leads,
     compare_eac4_forecast_overlap,
 )
+from .pressure import CAMSSurfacePressureResult, parse_surface_pressure
 
 __all__ = [
     "ADS_API_URL",
@@ -40,4 +41,6 @@ __all__ = [
     "JASMIN_BASE_URL",
     "compare_candidate_leads",
     "compare_eac4_forecast_overlap",
+    "CAMSSurfacePressureResult",
+    "parse_surface_pressure",
 ]

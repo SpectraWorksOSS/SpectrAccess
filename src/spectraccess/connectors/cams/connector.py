@@ -216,6 +216,27 @@ class CAMSConnector(Connector):
             return False
         return True
 
+    def fetch_surface_pressure(
+        self, *, valid_time: datetime, area: tuple[float, float, float, float],
+        dest: str | Path,
+    ):
+        """Retrieve one regional EAC4 surface-pressure field through ADS.
+
+        ADS publishes surface_pressure on the EAC4 single-level route:
+        https://ads.atmosphere.copernicus.eu/api/catalogue/v1/collections/cams-global-reanalysis-eac4/constraints.json
+        Area order is north, west, south, east. Time must be an exact EAC4
+        three-hour analysis epoch. Existing SIAC downloads remain unchanged.
+        """
+        from .pressure import fetch_surface_pressure
+
+        return fetch_surface_pressure(self, valid_time=valid_time, area=area, dest=dest)
+
+    def parse_surface_pressure(self, raw, **kwargs: object) -> pd.DataFrame:
+        """Emit canonical grid-cell pressure rows; no model sigma is invented."""
+        from .pressure import parse_surface_pressure
+
+        return parse_surface_pressure(raw, **kwargs)
+
     def discover(
         self,
         *,

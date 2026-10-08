@@ -1,0 +1,50 @@
+{
+  "Id": "fixture-olci-id",
+  "Name": "S3A_OL_2_LFR____20240501T100000_20240501T100300_fixture.SEN3",
+  "Collection": "SENTINEL-3",
+  "ContentDate": {
+    "Start": "2024-05-01T10:00:00Z",
+    "End": "2024-05-01T10:03:00Z"
+  },
+  "GeoFootprint": {
+    "type": "Polygon",
+    "coordinates": [
+      [
+        [
+          4,
+          51.9
+        ],
+        [
+          4.2,
+          51.9
+        ],
+        [
+          4.2,
+          52
+        ],
+        [
+          4,
+          52
+        ],
+        [
+          4,
+          51.9
+        ]
+      ]
+    ]
+  },
+  "Attributes": [
+    {
+      "Name": "productType",
+      "Value": "OL_2_LFR___"
+    },
+    {
+      "Name": "processorVersion",
+      "Value": "fixture-1"
+    },
+    {
+      "Name": "baselineCollection",
+      "Value": "003"
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+<xfdu:XFDU xmlns:xfdu="urn:ccsds:schema:xfdu:1">
+  <metadataSection><metadataObject><metadataWrap><xmlData>
+    <software version="fixture-1" />
+  </xmlData></metadataWrap></metadataObject></metadataSection>
+  <dataObjectSection>
+    <dataObject ID="0"><byteStream><fileLocation href="./iwv.nc" /></byteStream></dataObject>
+    <dataObject ID="1"><byteStream><fileLocation href="./geo_coordinates.nc" /></byteStream></dataObject>
+    <dataObject ID="2"><byteStream><fileLocation href="./time_coordinates.nc" /></byteStream></dataObject>
+    <dataObject ID="3"><byteStream><fileLocation href="./lqsf.nc" /></byteStream></dataObject>
+    <dataObject ID="4"><byteStream><fileLocation href="./otci.nc" /></byteStream></dataObject>
+    <dataObject ID="5"><byteStream><fileLocation href="./ogvi.nc" /></byteStream></dataObject>
+    <dataObject ID="6"><byteStream><fileLocation href="./rc_ogvi.nc" /></byteStream></dataObject>
+    <dataObject ID="7"><byteStream><fileLocation href="./qualityFlags.nc" /></byteStream></dataObject>
+    <dataObject ID="8"><byteStream><fileLocation href="./tie_geo_coordinates.nc" /></byteStream></dataObject>
+  </dataObjectSection>
+</xfdu:XFDU>

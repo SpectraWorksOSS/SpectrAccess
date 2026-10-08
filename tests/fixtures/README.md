@@ -54,3 +54,21 @@
   also documents this family as `<documentation type="Rights">Freely available</documentation>`.
 - Used by: `tests/test_connectors.py` netCDF parse test, to validate the GSICS connector's real
   product-format parsing path against a real downloaded file (not a synthetic stand-in).
+# Atmospheric connector fixtures
+
+`olci_cdse/synthetic.SEN3` and `cams_pressure/surface_pressure.nc` are small
+synthetic NetCDF fixtures, not redistributed provider products. They exercise
+packed values, fill values, line times, bit flags, cell bounds and missing errors.
+`olci_cdse/feature.json` is synthetic CDSE metadata with the real product-type
+and attribute names. The file layout follows the official OLCI product guide:
+`IWV_unc` uses packed scale/fill decoding and the published `long_name`.
+The synthetic manifest lists required files plus other LFR assets so tests
+exercise CDSETool glob filtering and download selection. The LQSF variable
+uses the names and bit positions from PDFS issue 2.4, Table 7-6 (pages 47-48),
+including `LAND` at bit 2, `CLOUD` at bit 3 and `WV_FAIL` at bit 11; its
+`flag_meanings` and numeric `flag_masks` follow the CF attribute layout.
+
+`ngl_gnss/ABMF.2008.246.trop` is a two-epoch extract of the NGL daily SINEX file
+inside https://geodesy.unr.edu/gps_timeseries/IGS20/trop/ABMF/ABMF.2008.trop.zip,
+retrieved 2026-10-06. Header retained, solution block shortened to two epochs.
+NGL attribution and source terms are in the connector's DATA_TERMS.md.
