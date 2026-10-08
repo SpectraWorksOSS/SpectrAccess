@@ -56,6 +56,13 @@ Issues = "https://github.com/SpectraWorksOSS/SpectrAccess/issues"
 "EO-Atlas" = "https://eo-atlas.org/"
 
 [project.optional-dependencies]
+viirs = [
+  "satpy==0.60.0",
+  "earthaccess==0.18.0",
+  "netCDF4>=1.6",
+  "h5netcdf>=1.3",
+  "h5py>=3.10",
+]
 slstr = [
   "satpy==0.60.0",
   "netCDF4>=1.6",

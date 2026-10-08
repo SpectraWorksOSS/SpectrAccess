@@ -46,3 +46,12 @@ version and selected calibration are separately identified provenance;
 Satpy-normalized platform or sensor labels are not provider metadata.
 Consumers build their own observation records from these outputs, stating
 any derived geometry, reflectance, aggregation or QA interpretation they add.
+
+For [NASA VIIRS](viirs-earthaccess.md), `scan_start_time` stays numeric on
+the provider scan dimension, with original epoch/units in its attributes.
+`scan_index` associates native detector rows with original scans. TAI93
+or TAI58 seconds are not silently converted to UTC. Reflective L1B bands
+retain the published scaled reflectance (`rho*cos(SZA)`); uncertainty
+indices retain their nonlinear provider definition. Cloud products keep
+their own geometry, timing and provider uncertainty fields. Filename
+collection tokens and CMR collection versions are separate metadata.

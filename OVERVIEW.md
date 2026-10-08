@@ -75,6 +75,7 @@ Credential environment variables and provider-client login files are no longer r
 | Connector | Status | Auth requirement |
 | --- | --- | --- |
 | Sentinel-3 [SLSTR](https://eo-atlas.org/products/sensor/slstr) | [SL_1_RBT native radiance/BT, flags, row time, uncertainty and tie-point geometry](docs/slstr-cdse.md); granule rows plus xarray reader | CDSE account; `spectraccess[slstr]` extra, Python 3.11+ |
+| NASA [VIIRS](https://eo-atlas.org/products/sensor/viirs) | [L1B IMG/MOD plus geolocation, cloud mask and cloud properties](docs/viirs-earthaccess.md); native values, flags, scan times and granule rows | Earthdata account; `spectraccess[viirs]` extra, Python 3.12+ |
 | GSICS GPPA | Available (EUMETSAT live, verified end-to-end; CMA catalog live but content-empty as of 2026-07-05; NOAA STAR pending, host unreachable 2026-07-05) | None for public THREDDS catalogs |
 | MODIS/VIIRS calibration LUT ([VIIRS](https://eo-atlas.org/products/sensor/viirs), [MODIS](https://eo-atlas.org/products/sensor/modis)) | VIIRS connector shape available; NOAA STAR F-factor THREDDS URL pending verification; MODIS planned | None for public VIIRS THREDDS; MODIS source design pending |
 | RadCalNet | Available (official JSON API; checked by hand against the live portal, 2026-07) | Free portal account; see [credentials](docs/credentials.md) |

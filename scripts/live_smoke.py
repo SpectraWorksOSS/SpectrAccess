@@ -418,6 +418,40 @@ def smoke_slstr_cdse() -> None:
         print(f"SLSTR CDSE: discover, filtered fetch, canonical parse and native read passed: {target.title}")
 
 
+def smoke_viirs_earthaccess() -> None:
+    if not os.environ.get('EARTHDATA_USERNAME') or not os.environ.get('EARTHDATA_PASSWORD'):
+        print('VIIRS Earthdata smoke SKIP: EARTHDATA_USERNAME/EARTHDATA_PASSWORD not set')
+        return
+    from spectraccess.connectors.viirs_earthaccess import VIIRSConnector
+
+    # Public CMR pin checked at build: 70,456,152 + 49,701,203 bytes.
+    pin = 'G2962669872-LAADS'
+    bbox = (15.0, -36.0, 15.2, -35.8)
+    connector = VIIRSConnector(credentials=lambda: Credential(
+        'password', os.environ['EARTHDATA_PASSWORD'], os.environ['EARTHDATA_USERNAME']))
+    print('VIIRS Earthdata: discover', flush=True)
+    targets = connector.discover(bbox=bbox, start=datetime(2024, 5, 1, 0, 0, 1, tzinfo=timezone.utc),
+        end=datetime(2024, 5, 1, 0, 5, 59, tzinfo=timezone.utc), products=('MOD',), platforms=('SNPP',))
+    target = next((t for t in targets if t.product_id == pin), None)
+    if target is None:
+        raise RuntimeError('pinned VIIRS product absent from CMR discovery')
+    with tempfile.TemporaryDirectory() as tmp:
+        print('VIIRS Earthdata: fetch matching 02/03 pair', flush=True)
+        result = connector.fetch(target, dest=tmp, max_bytes=150_000_000)
+        if result.targets[1].product_id != 'G2962643279-LAADS':
+            raise RuntimeError('VIIRS geolocation pin changed')
+        print('VIIRS Earthdata: read native window', flush=True)
+        ds = connector.read(result, bbox=bbox, bands=('M09', 'M15', 'M16'))
+        frame = connector.parse_canonical(result)
+        expected = ('M09', 'M15', 'M16', 'M09_quality_flags', 'scan_start_time',
+                    'scan_index', 'latitude', 'longitude', 'solar_zenith', 'sensor_zenith')
+        if frame.empty or any(name not in ds or ds[name].size == 0 for name in expected):
+            raise RuntimeError('VIIRS real fetch/read missing bands, flags, scan time or geometry')
+        if not ds.attrs['native_geometry'] or ds.attrs['resampled']:
+            raise RuntimeError('VIIRS native geometry contract failed')
+        print(f'VIIRS Earthdata: discover/fetch/read passed: {target.title}')
+
+
 def main() -> int:
     connector = sys.argv[1] if len(sys.argv) > 1 else ""
     if connector == "gsics":
@@ -440,6 +474,8 @@ def main() -> int:
         smoke_olci_cdse()
     elif connector == "slstr_cdse":
         smoke_slstr_cdse()
+    elif connector == "viirs_earthaccess":
+        smoke_viirs_earthaccess()
     elif connector == "ngl_gnss":
         smoke_ngl_gnss()
     elif connector == "cams_pressure":
