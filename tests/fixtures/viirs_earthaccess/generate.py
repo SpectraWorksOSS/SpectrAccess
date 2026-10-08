@@ -14,13 +14,13 @@ ROOT = Path(__file__).resolve().parent
 def generate(root=ROOT, *, missing_time=False):
     root = Path(root)
     root.mkdir(parents=True, exist_ok=True)
-    for grid, detectors, bands in (("MOD", 16, ("M09", "M15")), ("IMG", 32, ("I01", "I05"))):
+    for grid, detectors, bands in (("MOD", 16, ("M09", "M15", "M16")), ("IMG", 32, ("I01", "I05"))):
         for level in ("02", "03"):
             path = root / f"VNP{level}{grid}.A2024122.0000.002.2024122090000.nc"
             with netCDF4.Dataset(path, "w") as ds:
                 ds.setncatts(dict(platform="Suomi-NPP", instrument="VIIRS", orbit_number=1,
                     startDirection="Ascending", end_direction="Ascending", endDirection="Ascending",
-                    DayNightFlag="Day", time_coverage_start="2024-05-01T00:00:00.000Z",
+                    ShortName=f"VNP{level}{grid}", DayNightFlag="Day", time_coverage_start="2024-05-01T00:00:00.000Z",
                     time_coverage_end="2024-05-01T00:06:00.000Z", processing_version="3.0.30"))
                 ds.createDimension("number_of_lines", detectors * 3)
                 ds.createDimension("number_of_pixels", 8)
@@ -30,18 +30,31 @@ def generate(root=ROOT, *, missing_time=False):
                 scan = ds.createGroup("scan_line_attributes")
                 times = scan.createVariable("unavailable" if missing_time else "scan_start_time", "f8", ("number_of_scans",))
                 times.units = "seconds"
-                times.long_name = "Scan start time (TAI93)"
-                times[:] = [988761610., 988761611.8, 988761613.6]
-                scan.createVariable("scan_quality", "i2", ("number_of_scans",))[:] = [0, 1, 2]
+                times.long_name = "Scan start time (TAI58)" if level == "02" else "Scan start time (TAI93)"
+                times[:] = np.array([988761610., 988761611.8, 988761613.6]) + (1104537600. if level == "02" else 0.)
+                if level == "02":
+                    scan.createVariable("scan_quality_flags", "u1", ("number_of_scans",))[:] = [0, 1, 2]
+                    scan.createVariable("scan_state_flags", "u1", ("number_of_scans",))[:] = [0, 1, 4]
+                else:
+                    scan.createVariable("scan_quality", "i2", ("number_of_scans",))[:] = [0, 1, 2]
                 group = ds.createGroup("observation_data" if level == "02" else "geolocation_data")
                 dims = ("number_of_lines", "number_of_pixels")
                 if level == "02":
                     for band in bands:
-                        thermal = band in {"M15", "I05"}
+                        thermal = band in {"M15", "M16", "I05"}
                         val = group.createVariable(band, "u2", dims, fill_value=65535)
                         val.setncatts(dict(valid_min=np.uint16(0), valid_max=np.uint16(65527),
                             scale_factor=np.float32(.01 if thermal else .00002), add_offset=np.float32(0),
-                            long_name=band, units="Watts/meter^2/steradian/micrometer" if thermal else "none"))
+                            long_name=band, units="Watts/meter^2/steradian/micrometer" if thermal else "none",
+                            flag_values=np.array([65532, 65533, 65534], dtype='u2'),
+                            flag_meanings="Missing_EV Bowtie_Deleted Cal_Fail"))
+                        if not thermal:
+                            # NASA removed RSB units after L1 processing v1.1;
+                            # radiance units/scaling are separate attributes.
+                            val.delncattr('units')
+                            val.radiance_units = "Watts/meter^2/steradian/micrometer"
+                            val.radiance_scale_factor = np.float32(.0023088641)
+                            val.radiance_add_offset = np.float32(0)
                         val.set_auto_maskandscale(False)
                         encoded = np.arange(detectors * 3 * 8, dtype="u2").reshape(detectors * 3, 8) + 10
                         encoded[0, 0] = 65535
@@ -52,6 +65,8 @@ def generate(root=ROOT, *, missing_time=False):
                         flag[:] = np.arange(detectors * 3 * 8, dtype="u2").reshape(detectors * 3, 8)
                         ui = group.createVariable(band + "_uncert_index", "i1", dims, fill_value=-1)
                         ui.scale_factor = np.float32(.006138)
+                        ui.units = "percent"
+                        ui.conversion = "1.0 + scale*index^2"
                         ui.long_name = "Uncertainty index; percent uncertainty = 1 + scale_factor * UI^2"
                         ui.valid_min, ui.valid_max = np.int8(0), np.int8(127)
                         ui.set_auto_maskandscale(False)
@@ -71,6 +86,8 @@ def generate(root=ROOT, *, missing_time=False):
                         var = group.createVariable(name, "f4", dims, fill_value=-999.9)
                         var.units = "degrees"
                         var[:] = array
+                    # Additional synthetic collision control, not a claim that
+                    # NASA publishes a field called navigation_table.
                     group.createVariable("navigation_table", "f4", ("lookup",))[:] = np.arange(7)
     for product, version in (("CLDMSK_L2_VIIRS_SNPP", "002"), ("CLDPROP_L2_VIIRS_SNPP", "011")):
         path = root / f"{product}.A2024122.0000.{version}.2024122090000.nc"

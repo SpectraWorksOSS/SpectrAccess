@@ -2,6 +2,7 @@
 from datetime import datetime, timezone
 import hashlib
 import importlib.util
+import re
 from pathlib import Path
 
 import numpy as np
@@ -40,12 +41,18 @@ def pair(root, grid='MOD'):
 def granule(path):
     name = path.name
     product = name.split('.')[0]
-    return {'meta': {'concept-id': 'G1-LAADS'}, 'umm': {
+    return {'meta': {'concept-id': 'G1-LAADS', 'provider-id': 'LAADS',
+                     'native-id': 'LAADS:synthetic', 'collection-concept-id': 'C1-LAADS',
+                     'concept-type': 'granule'}, 'umm': {
+        'GranuleUR': 'LAADS:synthetic',
         'CollectionReference': {'ShortName': product, 'Version': module.COLLECTIONS[product]},
         'TemporalExtent': {'RangeDateTime': {'BeginningDateTime': '2024-05-01T00:00:00Z',
                                            'EndingDateTime': '2024-05-01T00:06:00Z'}},
-        'RelatedUrls': [{'Type': 'GET DATA', 'URL': f'https://data.laadsdaac.earthdatacloud.nasa.gov/prod-lads/{product}/{name}'}],
-        'DataGranule': {'ArchiveAndDistributionInformation': [{'SizeInBytes': path.stat().st_size,
+        'RelatedUrls': [{'Type': 'GET DATA', 'URL': f'https://data.laadsdaac.earthdatacloud.nasa.gov/prod-lads/{product}/{name}'},
+                        {'Type': 'GET DATA VIA DIRECT ACCESS', 'URL': f's3://prod-lads/{product}/{name}'}],
+        'DataGranule': {'Identifiers': [{'Identifier': name, 'IdentifierType': 'ProducerGranuleId'}],
+            'ArchiveAndDistributionInformation': [{'Name': 'Not provided', 'SizeUnit': 'MB',
+            'Size': path.stat().st_size / (1024 * 1024), 'SizeInBytes': path.stat().st_size,
             'Checksum': {'Algorithm': 'MD5', 'Value': hashlib.md5(path.read_bytes()).hexdigest()}}]},
         'SpatialExtent': {'HorizontalSpatialDomain': {'Geometry': {'GPolygons': [{'Boundary': {'Points': [
             {'Longitude': x, 'Latitude': y} for x, y in [(0, 50), (7, 50), (7, 53), (0, 53), (0, 50)]]}}]}}},
@@ -86,7 +93,7 @@ def test_native_windows(fixtures, grid, bands, detectors, bbox):
     np.testing.assert_equal(ds.scan_index.values, ds.number_of_lines.values // detectors)
     assert ds.attrs['native_geometry'] and not ds.attrs['resampled']
     assert ds[bands[0]].attrs['units'] == '1'
-    assert ds[bands[0]].attrs['provider_attributes']['units'] == 'none'
+    assert 'units' not in ds[bands[0]].attrs['provider_attributes']
     assert ds[bands[0]].attrs['provider_attributes']['valid_max'] == 65527
     assert 'valid_max' not in ds[bands[0]].attrs
     assert 'platform_name' not in ds[bands[0]].attrs
@@ -233,3 +240,75 @@ def test_smoke_skip(monkeypatch, capsys):
     monkeypatch.delenv('EARTHDATA_PASSWORD', raising=False)
     smoke.smoke_viirs_earthaccess()
     assert 'SKIP' in capsys.readouterr().out
+
+
+def test_real_earthaccess_discover_pair_fetch_read(fixtures, requests_mock, tmp_path):
+    """Only HTTP mocked: real query serialization, paging, DataGranule and pairing."""
+    image, geo = pair(fixtures).paths
+    records = {'VNP02MOD': granule(image), 'VNP03MOD': granule(geo)}
+    queries = []
+    def cmr_response(request, context):
+        params = request.qs
+        product = next(value[0].upper() for key, value in params.items()
+                       if key.removesuffix('[]') == 'short_name')
+        queries.append((product, params))
+        context.headers['CMR-Hits'] = '1'
+        return {'hits': 1, 'took': 1, 'items': [] if params['page_size'] == ['0'] else [records[product]]}
+    requests_mock.get(re.compile(r'https://cmr\.earthdata\.nasa\.gov/search/granules\.umm_json.*'),
+                      json=cmr_response)
+    for path in (image, geo):
+        product = path.name.split('.')[0]
+        requests_mock.get(records[product]['umm']['RelatedUrls'][0]['URL'], content=path.read_bytes())
+    connector = VIIRSConnector(credentials=Credential('password', 'fixture-secret', 'fixture-user'))
+    target, = connector.discover(bbox=(0, 50, 7, 53), start=datetime(2024, 5, 1),
+                                end=datetime(2024, 5, 2), platforms=('SNPP',))
+    assert target.raw['size'] == image.stat().st_size / (1024 * 1024)  # Real DataGranule enrichment.
+    result = connector.fetch(target, dest=tmp_path)
+    # CMR parameter assertions are independent of the connector's selectors.
+    geo_query = next(q for product, q in queries if product == 'VNP03MOD')
+    assert geo_query['readable_granule_name'] == ['vnp03mod.a2024122.0000.002.*.nc']
+    assert geo_query['options[readable_granule_name][pattern]'] == ['true']
+    image_query = next(q for product, q in queries if product == 'VNP02MOD')
+    assert tuple(map(float, image_query['bounding_box'][0].split(','))) == (0, 50, 7, 53)
+    assert image_query['version'] == ['2']
+    assert len(queries) == 4  # hits + records for both 02 discovery and 03 lookup.
+    # Input order cannot choose a 03 file as the science file.
+    reversed_result = VIIRSResult(tuple(reversed(result.paths)), result.targets, result.retrieved_at)
+    ds = connector.read(reversed_result, bbox=(2, 51, 4, 52), bands=('M09', 'M15', 'M16'))
+    assert all(ds[band].shape == (16, 3) for band in ('M09', 'M15', 'M16'))
+    for band in ('M09', 'M15', 'M16'):
+        assert set(('latitude', 'longitude', 'scan_index')) <= set(ds[band].coords)
+        assert ds[band].attrs['quality_variable'] == band + '_quality_flags'
+        assert ds[band + '_quality_flags'].attrs['associated_band'] == band
+        assert ds[band + '_uncert_index'].attrs['associated_band'] == band
+        assert ds[band].attrs['scan_time_variable'] == 'scan_start_time'
+        assert ds[band].attrs['scan_quality_flags_variable'] == 'scan_quality_flags'
+    np.testing.assert_equal(ds.scan_quality_flags.values, [1])
+    np.testing.assert_equal(ds.scan_state_flags.values, [1])
+    assert ds.l1b_scan_start_time.attrs['long_name'] == 'Scan start time (TAI58)'
+    assert ds.scan_start_time.attrs['long_name'] == 'Scan start time (TAI93)'
+    assert set(('latitude', 'longitude')) <= set(ds.solar_zenith.coords)
+    assert set(('latitude', 'longitude')) <= set(ds.sensor_zenith.coords)
+    assert ds.M15_brightness_temperature_lut.dims == ds.M16_brightness_temperature_lut.dims
+    assert ds.navigation_table.dims != ds.M15_brightness_temperature_lut.dims
+    assert 'flag_values' not in ds.M09.attrs
+    np.testing.assert_equal(ds.M09.attrs['provider_attributes']['flag_values'], [65532, 65533, 65534])
+
+
+def test_band_selection_diagnostic(fixtures):
+    with pytest.raises(ValueError) as error:
+        VIIRSConnector().read(pair(fixtures), bands=('M09', 'M10', 'M16'))
+    message = str(error.value)
+    assert 'product=VNP02MOD' in message
+    assert 'group=observation_data' in message
+    assert 'missing=[' in message and "'M10'" in message
+    assert 'found_variables=' in message and "'M09'" in message and "'M16'" in message
+    assert '65535' not in message and '988761610' not in message
+
+
+def test_single_band_provider_annotations(fixtures):
+    ds = VIIRSConnector().read(pair(fixtures), bands=('M16',), bbox=(2, 51, 4, 52))
+    assert {'M16', 'M16_quality_flags', 'M16_uncert_index', 'M16_brightness_temperature_lut'} <= set(ds)
+    assert not any(name.startswith('M09') or name.startswith('M15') for name in ds)
+    assert ds.M16_quality_flags.coords['latitude'].identical(ds.latitude)
+    np.testing.assert_equal(ds.scan_index.values, ds.number_of_lines.values // 16)

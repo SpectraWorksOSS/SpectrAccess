@@ -40,6 +40,25 @@ UNCERTAINTY_DEFINITION = (
     "Index retained encoded; no standard uncertainty or coverage factor asserted."
 )
 _HOSTS = {"data.laadsdaac.earthdatacloud.nasa.gov", "ladsweb.modaps.eosdis.nasa.gov"}
+_THERMAL_BANDS = {'M12', 'M13', 'M14', 'M15', 'M16', 'I04', 'I05'}
+
+
+def _selection_error(path, group, fields, reason):
+    # Only identifiers: no provider values or arrays enter this diagnostic.
+    with netCDF4.Dataset(path) as root:
+        product = root.getncattr('ShortName') if 'ShortName' in root.ncattrs() else _identity(path)['product']
+    return ValueError(f"{reason}; product={product}; "
+                      f"file={path.name}; group={group}; "
+                      f"found_variables={sorted(fields)}")
+
+
+def _band_annotations(band, fields):
+    """NASA L1B UG section 5.1, Tables 8/9; VNP02MOD.fs section 2."""
+    annotations = [(band + '_quality_flags', 'quality_flags'),
+                   (band + '_uncert_index', 'uncertainty_index')]
+    if band in _THERMAL_BANDS:
+        annotations.append((band + '_brightness_temperature_lut', 'brightness_temperature_lookup'))
+    return [(name, role) for name, role in annotations if name in fields]
 
 
 @dataclass(frozen=True)
@@ -270,33 +289,48 @@ class VIIRSConnector(Connector):
             _copy_group(output, geo, 'geolocation_data', window, grid_dims)
         group = 'geophysical_data' if cloud else 'observation_data'
         with xr.open_dataset(image, group=group, decode_cf=False) as encoded:
+            fields = list(encoded.variables)
             if cloud:
                 selected = list(encoded.data_vars) if variables is None else list(variables)
             else:
-                available = [n for n in encoded if re.fullmatch(r'[MI]\d{2}', n)]
+                available = [n for n in fields if re.fullmatch(r'[MI]\d{2}', n)]
                 selected = available if bands is None else list(bands)
                 if not selected:
-                    raise ValueError("no VIIRS bands selected")
+                    raise _selection_error(image, group, fields, "no VIIRS bands selected")
                 if any(n not in available for n in selected):
-                    raise ValueError("bands must name published I/M observation bands")
+                    missing = sorted(set(selected) - set(available))
+                    raise _selection_error(image, group, fields,
+                                           f"bands must name published I/M observation bands; missing={missing}")
             for name in selected:
                 if name not in encoded:
-                    raise ValueError(f"missing provider variable {name}")
+                    raise _selection_error(image, group, fields, f"missing provider variable {name}")
                 provider = encoded[name]
                 # Ensure a measurement cannot silently resize the geolocation grid.
                 if not cloud and (provider.dims != grid_dims or provider.shape != shape):
                     raise ValueError(f"{name} differs from the matching 03 image grid")
                 if not cloud or name in ('Clear_Sky_Confidence', 'Cloud_Top_Height'):
+                    if name in _THERMAL_BANDS and name + '_brightness_temperature_lut' not in fields:
+                        raise _selection_error(image, group, fields, f"missing provider brightness-temperature LUT for {name}")
                     _measurement(output, image, group, name, provider, window, cloud)
                 else:
                     _copy_group(output, image, group, window, grid_dims, names=[name])
                 if not cloud:
                     flag = name + '_quality_flags'
                     if flag not in encoded:
-                        raise ValueError(f"missing provider quality flags {flag}")
-                    companions = [n for n in encoded if n.startswith(name + '_')]
-                    _copy_group(output, image, group, window, grid_dims, names=companions)
+                        raise _selection_error(image, group, fields, f"missing provider quality flags {flag}")
+                    annotations = _band_annotations(name, fields)
+                    _copy_group(output, image, group, window, grid_dims, names=[n for n, _ in annotations])
+                    for annotation, role in annotations:
+                        output[annotation].attrs.update(associated_band=name, annotation_role=role)
+                    output[name].attrs.update(quality_variable=flag,
+                                             scan_time_variable='scan_start_time',
+                                             row_scan_index_variable='scan_index')
         _scan_times(output, geo, window, grid_dims, shape[0], cloud)
+        if not cloud:
+            _science_scan_annotations(output, image)
+        # These coordinates locate measurement pixels, flags and solar/view angles
+        # on the same published native 03 (or cloud) support. LUTs are non-spatial.
+        output = output.set_coords(['latitude', 'longitude'])
         with xr.open_dataset(image, decode_cf=False) as root:
             output.attrs['provider_global_attributes'] = deepcopy(root.attrs)
         output.attrs.update(native_geometry=True, resampled=False, support_kind='pixel',
@@ -367,9 +401,16 @@ def _paths(raw):
 
 def _check_metadata_pair(image, geo):
     with netCDF4.Dataset(image) as a, netCDF4.Dataset(geo) as b:
+        for path, root in ((image, a), (geo, b)):
+            if 'ShortName' in root.ncattrs() and root.getncattr('ShortName') != _identity(path)['product']:
+                raise ValueError(f"VIIRS file identity mismatch: file={path.name}; "
+                                 f"provider_product={root.getncattr('ShortName')}")
         for key in ('platform', 'time_coverage_start', 'time_coverage_end'):
             if key not in a.ncattrs() or key not in b.ncattrs() or a.getncattr(key) != b.getncattr(key):
                 raise ValueError(f"VIIRS 02/03 provider metadata mismatch: {key}")
+        for dimension in ('number_of_scans', 'number_of_lines', 'number_of_pixels'):
+            if len(a.dimensions[dimension]) != len(b.dimensions[dimension]):
+                raise ValueError(f"VIIRS 02/03 native support mismatch: {dimension}")
 
 
 class _Key(dict):
@@ -379,7 +420,7 @@ class _Key(dict):
 
 def _measurement(output, path, group, name, provider, window, cloud):
     attrs = deepcopy(provider.attrs)
-    thermal = not cloud and name in {'M12', 'M13', 'M14', 'M15', 'M16', 'I04', 'I05'}
+    thermal = not cloud and name in _THERMAL_BANDS
     units = attrs.get('units')
     handler_type = VIIRSL2FileHandler if cloud else VIIRSL1BFileHandler
     handler = handler_type(str(path), {'platform_shortname': _platform(_identity(path)['product'])}, {})
@@ -405,7 +446,7 @@ def _measurement(output, path, group, name, provider, window, cloud):
         units = 'K'
     elif units in (None, 'none', 'None'):
         units = info['units']
-    values.attrs = {**{k: v for k, v in attrs.items() if k not in ('scale_factor', 'add_offset', '_FillValue', 'valid_min', 'valid_max', 'valid_range')},
+    values.attrs = {**{k: v for k, v in attrs.items() if k not in ('scale_factor', 'add_offset', '_FillValue', 'valid_min', 'valid_max', 'valid_range', 'flag_values', 'flag_meanings')},
         'units': units, 'provider_attributes': attrs, 'provider_file': path.name, 'provider_variable': group + '/' + name,
         'reader': 'satpy.viirs_l2' if cloud else 'satpy.viirs_l1b', 'reader_version': '0.60.0',
         'value_transform': 'provider range mask and scale/offset' if cloud else (
@@ -438,7 +479,7 @@ def _copy_group(output, path, group, window, grid_dims, names=None):
                     value.attrs.pop(key, None)
             # Only the shared native image grid may share dimensions. Tables,
             # bytes, LUTs and non-grid supports belong to their source variable.
-            value = value.rename({d: f"{path.stem}_{group}_{name}_{d}" for d in value.dims if d not in grid_dims})
+            value = value.rename({d: f"{path.stem}_{group}_{d}" for d in value.dims if d not in grid_dims})
             value.attrs.update(provider_file=path.name, provider_variable=group + '/' + name,
                                provider_attributes=deepcopy(encoded[name].attrs), reader='provider.netcdf')
             if name.endswith('_uncert_index'):
@@ -485,3 +526,32 @@ def _scan_times(output, geo, window, grid_dims, total_rows, cloud):
         output.coords['scan_index'] = xr.DataArray(np.arange(rows.start, rows.stop) // detectors, dims=(grid_dims[0],))
         output.coords[grid_dims[0]] = np.arange(rows.start, rows.stop)
         output.coords[grid_dims[1]] = np.arange(window[grid_dims[1]].start, window[grid_dims[1]].stop)
+
+
+def _science_scan_annotations(output, image):
+    """NASA L1B scan annotations (UG section 5.2/Table 11), on paired scans."""
+    indices = output.number_of_scans.values
+    with netCDF4.Dataset(image) as root:
+        group = root.groups.get('scan_line_attributes')
+        if group is None:
+            raise ValueError(f"missing L1B scan_line_attributes in {image.name}")
+        count = len(root.dimensions['number_of_scans'])
+        for name, variable in group.variables.items():
+            variable.set_auto_maskandscale(False)
+            if 'number_of_scans' in variable.dimensions and variable.shape[variable.dimensions.index('number_of_scans')] != count:
+                raise ValueError(f"L1B scan annotation shape mismatch: {name}")
+            slices = tuple(indices if d == 'number_of_scans' else slice(None) for d in variable.dimensions)
+            data = np.asarray(variable[slices])
+            # 02 and 03 can publish same-named time fields with different epochs.
+            alias = 'l1b_' + name if name in output else name
+            dimensions = tuple(d if d == 'number_of_scans'
+                               else f'{image.stem}_scan_line_attributes_{d}' for d in variable.dimensions)
+            output[alias] = xr.DataArray(data, dims=dimensions, attrs={
+                **{k: variable.getncattr(k) for k in variable.ncattrs()},
+                'provider_file': image.name, 'provider_variable': 'scan_line_attributes/' + name,
+                'reader': 'provider.netcdf', 'value_transform': 'encoded provider L1B scan field'})
+    for name in output:
+        if re.fullmatch(r'[MI]\d{2}', name):
+            for annotation in ('scan_quality_flags', 'scan_state_flags'):
+                if annotation in output:
+                    output[name].attrs[annotation + '_variable'] = annotation

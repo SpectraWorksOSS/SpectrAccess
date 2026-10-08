@@ -91,8 +91,22 @@ bytes retain their values, dtypes, fill codes and meanings.
 
 Solar/view geometry comes from provider `geolocation_data`, including
 `solar_zenith`, `solar_azimuth`, `sensor_zenith`, `sensor_azimuth`.
-Image dimensions keep provider names. Non-image dimensions are namespaced
-per file/group/variable so unrelated LUTs or byte axes never align.
+Image dimensions keep provider names. Longitude and latitude are coordinates
+on each image variable and solar/view angle field. Non-image dimensions are
+namespaced per file/group so unrelated LUTs or byte axes never align, while
+variables on a shared published dimension within that group retain that support.
+Band annotations follow NASA's observation-data layout: the band name followed
+by _quality_flags, _uncert_index, or the thermal _brightness_temperature_lut.
+Annotation attrs identify their associated band and role; each band identifies
+its quality variable, scan-time variable and row-to-scan index.
+L1B scan-quality/state flags from the 02 file retain their scan support and
+association with selected bands. Same-named 02 time fields receive an l1b_
+prefix so their published epoch can coexist with the 03 scan time.
+
+Band selection remains strict. If a requested band is unavailable, the error
+lists missing bands, the opened product/file, group, and all variable names
+found in that group. It prints no scientific values. This inventory distinguishes
+an absent band from a different layout or a misidentified file.
 
 `scan_start_time` is a numeric coordinate on `number_of_scans`.
 `scan_index` links each retained image row to its original provider scan;
@@ -168,6 +182,7 @@ runs in the maintainer's private workflow before merge.
 ## Provider references
 
 - [NASA LAADS VNP02MOD file specification](https://ladsweb.modaps.eosdis.nasa.gov/filespec/VIIRS/1/VNP02MOD.fs)
+- [NASA VIIRS L1B User Guide, August 2021](https://ladsweb.modaps.eosdis.nasa.gov/api/v2/content/archives/Document%20Archive/Science%20Data%20Product%20Documentation/NASA_VIIRS_L1B_UG_August_2021.pdf), section 5.1 and Tables 8/9
 - [NASA LAADS VNP03MOD file specification](https://ladsweb.modaps.eosdis.nasa.gov/filespec/VIIRS/1/VNP03MOD.fs)
 - [NASA cloud-mask file specification](https://ladsweb.modaps.eosdis.nasa.gov/filespec/VIIRS/1/CLDMSK_L2_VIIRS_SNPP)
 - [NASA cloud-property file specification](https://ladsweb.modaps.eosdis.nasa.gov/filespec/VIIRS/1/CLDPROP_L2_VIIRS_SNPP)
