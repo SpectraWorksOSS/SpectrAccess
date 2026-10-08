@@ -1,0 +1,45 @@
+{
+  "Id": "synthetic-slstr",
+  "Name": "S3A_SL_1_RBT____20240501T100000_20240501T100300_20240501T120000_0179_111_222_3333_ESA_R_NT_005.SEN3",
+  "ContentDate": {
+    "Start": "2024-05-01T10:00:00Z",
+    "End": "2024-05-01T10:03:00Z"
+  },
+  "GeoFootprint": {
+    "type": "Polygon",
+    "coordinates": [
+      [
+        [
+          3,
+          50
+        ],
+        [
+          6,
+          50
+        ],
+        [
+          6,
+          52
+        ],
+        [
+          3,
+          52
+        ],
+        [
+          3,
+          50
+        ]
+      ]
+    ]
+  },
+  "Attributes": [
+    {
+      "Name": "productType",
+      "Value": "SL_1_RBT___"
+    },
+    {
+      "Name": "baselineCollection",
+      "Value": "005"
+    }
+  ]
+}

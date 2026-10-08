@@ -392,6 +392,32 @@ def smoke_cams_pressure() -> None:
         print(f"CAMS EAC4 surface pressure: {len(frame)} regional cells from {result.source_url}")
 
 
+def smoke_slstr_cdse() -> None:
+    if not os.environ.get("CDSE_USERNAME") or not os.environ.get("CDSE_PASSWORD"):
+        print("SLSTR CDSE smoke SKIP: CDSE_USERNAME/CDSE_PASSWORD not set")
+        return
+    from spectraccess.connectors.slstr_cdse import SLSTRConnector
+    # Pinned public catalogue product, 436 MB complete; fetch selects only
+    # four bands and annotations. Small Australian bbox within its swath.
+    product_id = "a18067ba-e29f-43ff-b16d-f09b81df9e98"
+    bbox = (138.0, -39.0, 138.2, -38.8)
+    connector = SLSTRConnector(credentials=lambda: Credential(
+        "password", os.environ["CDSE_PASSWORD"], os.environ["CDSE_USERNAME"]))
+    targets = connector.discover(bbox=bbox, start=datetime(2024, 5, 1, 0, 12, tzinfo=timezone.utc),
+                                 end=datetime(2024, 5, 1, 0, 16, tzinfo=timezone.utc), limit=100)
+    target = next((t for t in targets if t.product_id == product_id), None)
+    if target is None:
+        raise RuntimeError("pinned SLSTR product absent from catalogue discovery")
+    with tempfile.TemporaryDirectory() as tmp:
+        result = connector.fetch(target, dest=tmp, channels=("S4", "S7", "S8", "S9"), views=("nadir",))
+        frame = connector.parse_canonical(result, bbox=bbox)
+        ds = connector.read(result, bbox=bbox, channels=("S4", "S7", "S8", "S9"), views=("nadir",))
+        expected = ("S4_radiance_an", "S7_BT_in", "S8_BT_in", "S9_BT_in", "cloud_in", "confidence_in", "time_stamp_in", "solar_zenith_tn")
+        if frame.empty or any(name not in ds or ds[name].size == 0 for name in expected):
+            raise RuntimeError("SLSTR real fetch/read missing measurements, flags, time or geometry")
+        print(f"SLSTR CDSE: discover, filtered fetch, canonical parse and native read passed: {target.title}")
+
+
 def main() -> int:
     connector = sys.argv[1] if len(sys.argv) > 1 else ""
     if connector == "gsics":
@@ -412,6 +438,8 @@ def main() -> int:
         smoke_landsat_eodag()
     elif connector == "olci_cdse":
         smoke_olci_cdse()
+    elif connector == "slstr_cdse":
+        smoke_slstr_cdse()
     elif connector == "ngl_gnss":
         smoke_ngl_gnss()
     elif connector == "cams_pressure":
