@@ -505,6 +505,76 @@ def smoke_fci_eumetsat() -> None:
         print(f"FCI EUMETSAT: discover, filtered fetch, canonical parse and native read passed: {target.title}")
 
 
+def smoke_seviri_eumetsat() -> None:
+    if not os.environ.get("EUMETSAT_KEY") or not os.environ.get("EUMETSAT_SECRET"):
+        print("SEVIRI EUMETSAT smoke SKIP: EUMETSAT_KEY/EUMETSAT_SECRET not set")
+        return
+    import numpy as np
+    from spectraccess.connectors.seviri_eumetsat import SEVIRIConnector
+
+    product_id = "MSG2-SEVI-MSG15-0100-NA-20160615100416.823000000Z-NA"
+    connector = SEVIRIConnector(credentials=lambda: Credential(
+        "password", os.environ["EUMETSAT_SECRET"], os.environ["EUMETSAT_KEY"]))
+
+    def checked(stage, operation, *args, **kwargs):
+        try:
+            return operation(*args, **kwargs)
+        except Exception as exc:
+            print(f"SEVIRI EUMETSAT smoke FAIL: {getattr(exc, 'stage', stage)}; "
+                  f"HTTP {getattr(exc, 'status_code', 'unavailable')}; {exc}", flush=True)
+            raise
+
+    print("SEVIRI EUMETSAT discover: both services, 2016-06-15 10:00-10:20 UTC", flush=True)
+    targets = checked("discover", connector.discover, bbox=(-10, 35, 30, 60),
+                      start=datetime(2016, 6, 15, 10, tzinfo=timezone.utc),
+                      end=datetime(2016, 6, 15, 10, 20, tzinfo=timezone.utc))
+    if {t.service for t in targets} != {"full_disc", "rapid_scan"}:
+        raise RuntimeError("both SEVIRI services must be present in catalogue discovery")
+    target = next((t for t in targets if t.product_id == product_id), None)
+    if target is None:
+        raise RuntimeError("pinned RSS product absent from catalogue discovery")
+    with tempfile.TemporaryDirectory() as tmp:
+        print(f"SEVIRI EUMETSAT fetch: whole RSS native product {product_id}", flush=True)
+        result = checked("fetch", connector.fetch, target, dest=tmp)
+        lines = checked("line_times", connector.line_times, result, channel="IR_108")
+        measured = lines.time.values.astype("datetime64[ns]")
+        valid = ~np.isnat(measured)
+        row = lines.row.values.astype(np.int64)
+        if not valid.any() or not np.all(np.diff(row) > 0):
+            raise RuntimeError("missing acquisition times or non-increasing ICD grid rows")
+        times = measured[valid]
+        begin = np.datetime64(target.sensing_start.replace(tzinfo=None), "ns")
+        end = np.datetime64(target.sensing_end.replace(tzinfo=None), "ns")
+        if not np.all(np.diff(times) >= np.timedelta64(0, "ns")) or np.any(times < begin) or np.any(times > end):
+            raise RuntimeError("provider acquisition times must increase south to north inside catalogue sensing interval")
+        coverage = lines.attrs["actual_coverage"]["VIS_IR"]
+        declared = target.service_coverage
+        actual_first, actual_last = int(coverage["SouthernLineActual"]), int(coverage["NorthernLineActual"])
+        print(f"SEVIRI RSS actual L1.5 coverage: {actual_first}-{actual_last}; "
+              f"documented nominal: {declared['south_line']}-{declared['north_line']}; "
+              f"bound differences: {actual_first - declared['south_line']}, {actual_last - declared['north_line']}; "
+              f"timed rows: {int(valid.sum())}/{len(row)}", flush=True)
+        rows_in_service = declared["north_line"] - declared["south_line"] + 1
+        duration = (end - begin) / np.timedelta64(1, "s")
+        nominal_seconds = (row[valid] - declared["south_line"]) / rows_in_service * duration
+        measured_seconds = (times - begin) / np.timedelta64(1, "s")
+        residual = measured_seconds - nominal_seconds
+        print(f"SEVIRI RSS scan-law residual seconds: max={float(np.max(np.abs(residual))):.6f}; "
+              f"rms={float(np.sqrt(np.mean(residual ** 2))):.6f}; "
+              "nominal = sensing_start + (ICD row - documented first row) / documented service rows * sensing duration", flush=True)
+        if not lines.attrs["satellite_actual_position_available"]:
+            raise RuntimeError("native header has no usable actual orbital position")
+        print(f"SEVIRI native orbital parameters: {lines.attrs['orbital_parameters']}", flush=True)
+        bbox = (4.8, 52.3, 4.95, 52.4)
+        for channel, calibration in (("IR_108", "radiance"), ("VIS006", "counts")):
+            ds = checked("read", connector.read, result, bbox=bbox, channels=(channel,), calibration=calibration)
+            if not ds[channel].size or not bool(ds[channel].notnull().any()):
+                raise RuntimeError(f"SEVIRI {channel} {calibration} Netherlands window has no valid values")
+            if not ds.attrs["native_geometry"] or ds.attrs["resampled"]:
+                raise RuntimeError("SEVIRI native geometry contract failed")
+        print(f"SEVIRI EUMETSAT PASS: discovery, fetch, measured line time, coverage, native radiance/counts: {product_id}")
+
+
 def main() -> int:
     connector = sys.argv[1] if len(sys.argv) > 1 else ""
     if connector == "gsics":
@@ -529,6 +599,8 @@ def main() -> int:
         smoke_slstr_cdse()
     elif connector == "viirs_earthaccess":
         smoke_viirs_earthaccess()
+    elif connector == "seviri_eumetsat":
+        smoke_seviri_eumetsat()
     elif connector == "fci_eumetsat":
         smoke_fci_eumetsat()
     elif connector == "ngl_gnss":

@@ -70,3 +70,13 @@ declaration, while image arrays carry scan angles and projection parameters.
 Radiometric noise lookup tables keep independent channel dimensions and
 their provider packing metadata. `unc_definition` describes those tables
 when present, without assigning a scalar uncertainty to the repeat cycle.
+
+For [MSG SEVIRI](seviri-eumetsat.md), the catalogue footprint is absent and
+discovery bbox does not filter products. Nominal `service_coverage` is labelled
+as connector-declared documentation, separate from actual native trailer
+coverage. `<channel>_time` preserves channel-specific provider mean line time;
+its `y_<channel>` coordinate holds the ICD one-based full-disc grid row.
+Rows run south to north, and HRV has its own grid. Native header orbit
+polynomials supply actual satellite position when usable; nominal service
+longitude is not substituted for it. Counts and nominal radiance must be
+selected explicitly; no reflectance or brightness-temperature output is offered.
