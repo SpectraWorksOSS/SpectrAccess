@@ -158,8 +158,15 @@ def _line_info(handler, channel):
         index = handler.mda["channel_list"].index(channel)
         records = handler._dask_array["visir"][:, index]
     # Field reads preserve channel-specific line side info without decoding pixels.
-    return {name: np.asarray(records[name].compute()).reshape(-1)
+    info = {name: np.asarray(records[name].compute()).reshape(-1)
             for name in ("lineno", "chan_id", "acq_time", "line_validity", "line_rquality", "line_gquality")}
+    # Native records are big-endian; the pinned reader declares this field it never
+    # uses with native byte order, so decode the provider bytes explicitly.
+    lineno = info["lineno"]
+    if lineno.dtype.byteorder != ">":
+        lineno = lineno.view(lineno.dtype.newbyteorder(">"))
+    info["lineno"] = lineno.astype(np.int64)
+    return info
 
 
 def _facts(handler):

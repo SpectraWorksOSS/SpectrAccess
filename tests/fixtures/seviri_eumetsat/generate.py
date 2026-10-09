@@ -20,6 +20,11 @@ def _cds(value):
     return int(seconds // 86400), int(seconds % 86400 * 1000)
 
 
+def _big_endian(values):
+    # Real native line numbers are big-endian; the reader's record dtype is native-endian.
+    return np.asarray(values, dtype='>u4').view(np.uint32)
+
+
 def _pack(values):
     """Pack four ten-bit counts into five bytes, MSB first."""
     bits = ((np.asarray(values, dtype=np.uint16)[:, None] >> np.arange(9, -1, -1)) & 1).astype(np.uint8)
@@ -87,7 +92,7 @@ def generate(folder, *, earth_model=2, single_channel=False, stacked_hrv=False):
         if channel == 'HRV':
             for i in range(3):
                 lines = records['hrv'][:, i]
-                lines['lineno'] = np.arange(4) * 3 + i + (3 * 1855 - 2)
+                lines['lineno'] = _big_endian(np.arange(4) * 3 + i + (3 * 1855 - 2))
                 lines['chan_id'] = 12
                 lines['acq_time']['Days'] = days
                 lines['acq_time']['Milliseconds'] = msecs + np.arange(4) * 3000 + i * 1000
@@ -95,7 +100,7 @@ def generate(folder, *, earth_model=2, single_channel=False, stacked_hrv=False):
                     lines['line_data'][row] = _pack(np.arange(24) + row * 24 + i + 1)
         else:
             lines = records['visir'][:, handler.mda['channel_list'].index(channel)]
-            lines['lineno'] = np.arange(1855, 1859)
+            lines['lineno'] = _big_endian(np.arange(1855, 1859))
             lines['chan_id'] = CHANNELS.index(channel) + 1
             lines['acq_time']['Days'] = days
             lines['acq_time']['Milliseconds'] = msecs + np.arange(4) * 3000 + CHANNELS.index(channel) * 10
