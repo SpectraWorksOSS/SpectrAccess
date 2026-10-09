@@ -5,7 +5,10 @@ Satpy 0.60.0 requires Python >=3.11; the base package retains Python >=3.10.
 The extra contains `satpy==0.60.0` and `eumdac>=3.1,<4` with their dependencies.
 Native files need no HDF5 plugin or additional NetCDF backend. The seviri extra
 is subject to Satpy's GPLv3 or later licence; EUMDAC is MIT. spectrAccess
-code remains Apache-2.0. Observation-data terms are separate.
+code remains Apache-2.0. Observation-data terms are separate and, for these two
+MSG collections, not yet confirmed; see
+[data terms](../src/spectraccess/connectors/seviri_eumetsat/DATA_TERMS.md)
+before sharing any output.
 
 Run `spectraccess login eumetsat`, entering the consumer key as account and
 consumer secret as password. Alternatively pass a credential source:
@@ -162,14 +165,18 @@ These fixtures establish adapter mechanics, not real-data scientific validity.
 
 `python scripts/live_smoke.py seviri_eumetsat` discovers both services over
 Europe for 2016-06-15 10:00-10:20 UTC, then fetches pinned RSS product
-`MSG2-SEVI-MSG15-0100-NA-20160615100416.823000000Z-NA`. It checks south-to-north
-line-time order and the catalogue interval, prints actual coverage beside
+`MSG2-SEVI-MSG15-0100-NA-20160615100416.823000000Z-NA`. It checks that grid rows
+increase strictly from south to north, that every line time lies inside the
+catalogue interval, and that no line time runs backwards by more than 1 s
+(smaller backward steps are reported, not failed). It prints actual coverage beside
 nominal 2321-3712, and prints maximum absolute and RMS residual in seconds
 against `sensing_start + (row - first_row) / rows_in_service * sensing_duration`.
 It prints the number of timed rows used, then checks IR_108 radiance and VIS006
 counts over a small Netherlands window. The smoke alone accepts
 `EUMETSAT_KEY`/`EUMETSAT_SECRET` and hands them to the connector as a Credential.
-Absent values produce SKIP. A non-SKIP live proof remains required before release.
+Absent values produce SKIP. A live run of this smoke has passed against the
+EUMETSAT Data Store. It fetches and reads one rapid-scan product; full-disc
+products are covered by live discovery only.
 
 See [observation fields](observation-fields.md), [credentials](credentials.md)
 and [data terms](../src/spectraccess/connectors/seviri_eumetsat/DATA_TERMS.md).

@@ -74,7 +74,7 @@ Credential environment variables and provider-client login files are no longer r
 
 | Connector | Status | Auth requirement |
 | --- | --- | --- |
-| MSG [SEVIRI](https://eo-atlas.org/products/sensor/seviri) | [Full-disc/RSS Level 1.5 native counts/radiance, measured line time and actual coverage](docs/seviri-eumetsat.md); product rows plus xarray reader, live proof pending | EUMETSAT consumer key/secret; `spectraccess[seviri]` extra, Python 3.11+ |
+| MSG [SEVIRI](https://eo-atlas.org/products/sensor/seviri) | [Full-disc/RSS Level 1.5 native counts/radiance, measured line time and actual coverage](docs/seviri-eumetsat.md); product rows plus xarray reader | EUMETSAT consumer key/secret; MSG collection licence terms not yet confirmed (see the connector's DATA_TERMS.md); `spectraccess[seviri]` extra, Python 3.11+ |
 | Sentinel-3 [SLSTR](https://eo-atlas.org/products/sensor/slstr) | [SL_1_RBT native radiance/BT, flags, row time, uncertainty and tie-point geometry](docs/slstr-cdse.md); granule rows plus xarray reader | CDSE account; `spectraccess[slstr]` extra, Python 3.11+ |
 | NASA [VIIRS](https://eo-atlas.org/products/sensor/viirs) | [L1B IMG/MOD plus geolocation, cloud mask and cloud properties](docs/viirs-earthaccess.md); native values, flags, scan times and granule rows | Earthdata account; `spectraccess[viirs]` extra, Python 3.12+ |
 | MTG [FCI](https://eo-atlas.org/products/sensor/fci) | [10-minute L1c radiance and L2 cloud products, native grids, pixel time, QA and noise tables](docs/fci-eumetsat.md); repeat-cycle rows plus xarray reader | EUMETSAT consumer key/secret; `spectraccess[fci]` extra, Python 3.11+ |
