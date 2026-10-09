@@ -160,5 +160,3 @@ def _provider_failure(exc, stage, collection=None, *, values=(), provider_name="
         failure.status_code, failure.stage = status, stage
         return failure
     return provider_error(detail, status_code=status, stage=stage)
-
-
