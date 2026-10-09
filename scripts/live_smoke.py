@@ -12,7 +12,6 @@ from spectraccess.core.credentials import Credential
 from spectraccess.connectors.gsics.connector import DEFAULT_CATALOGS, GSICSCatalog, GSICSConnector
 from spectraccess.connectors.modis_viirs_cal.connector import VIIRSCatalog, VIIRSCalibrationConnector
 from spectraccess.connectors.radcalnet import RadCalNetConnector
-from spectraccess.connectors.sentinel2_cdse import Sentinel2CDSEConnector, target_to_canonical
 
 
 _GSICS_ENV_OVERRIDES = {
@@ -175,6 +174,8 @@ def smoke_radcalnet() -> None:
 
 
 def smoke_sentinel2_cdse() -> None:
+    from spectraccess.connectors.sentinel2_cdse import Sentinel2CDSEConnector, target_to_canonical
+
     # Catalogue discovery is public. Keep the scheduled smoke metadata-only:
     # downloading this ~757 MB fixture would need credentials and would turn a
     # portal-health check into recurring provider spend/transfer.
