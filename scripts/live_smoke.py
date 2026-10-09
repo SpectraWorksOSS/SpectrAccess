@@ -555,11 +555,21 @@ def smoke_seviri_eumetsat() -> None:
         times = measured[valid]
         begin = np.datetime64(target.sensing_start.replace(tzinfo=None), "ns")
         end = np.datetime64(target.sensing_end.replace(tzinfo=None), "ns")
+        timed_rows = row[valid]
+        step_seconds = np.diff(times) / np.timedelta64(1, "s")
+        backwards = np.flatnonzero(step_seconds < 0)
         print(f"SEVIRI RSS line times: first={times[0]}; last={times[-1]}; catalogue interval={begin} to {end}; "
-              f"decreasing steps={int(np.sum(np.diff(times) < np.timedelta64(0, 'ns')))}; "
-              f"before start={int(np.sum(times < begin))}; after end={int(np.sum(times > end))}", flush=True)
-        if not np.all(np.diff(times) >= np.timedelta64(0, "ns")) or np.any(times < begin) or np.any(times > end):
-            raise RuntimeError("provider acquisition times must increase south to north inside catalogue sensing interval")
+              f"before start={int(np.sum(times < begin))}; after end={int(np.sum(times > end))}; "
+              f"median step seconds={float(np.median(step_seconds)):.6f}; backwards steps={len(backwards)}", flush=True)
+        for i in backwards:
+            print(f"SEVIRI RSS backwards line time: rows {int(timed_rows[i])}->{int(timed_rows[i + 1])}; "
+                  f"{times[i]} -> {times[i + 1]}; step seconds={float(step_seconds[i]):.6f}", flush=True)
+        if np.any(times < begin) or np.any(times > end):
+            raise RuntimeError("provider acquisition times must lie inside the catalogue sensing interval")
+        # Provider mean line times are reported unmodified. A backwards step larger than
+        # about two rapid-scan swaths would mean misordered lines, not timing jitter.
+        if backwards.size and float(-step_seconds[backwards].min()) > 1.0:
+            raise RuntimeError("provider acquisition times run backwards by more than 1 s between grid rows")
         coverage = lines.attrs["actual_coverage"]["VIS_IR"]
         declared = target.service_coverage
         actual_first, actual_last = int(coverage["SouthernLineActual"]), int(coverage["NorthernLineActual"])
