@@ -541,11 +541,23 @@ def smoke_seviri_eumetsat() -> None:
         measured = lines.time.values.astype("datetime64[ns]")
         valid = ~np.isnat(measured)
         row = lines.row.values.astype(np.int64)
-        if not valid.any() or not np.all(np.diff(row) > 0):
-            raise RuntimeError("missing acquisition times or non-increasing ICD grid rows")
+        steps = np.diff(row)
+        print(f"SEVIRI RSS line side info: rows={len(row)}; timed={int(valid.sum())}; "
+              f"first rows={row[:3].tolist()}; last rows={row[-3:].tolist()}; "
+              f"non-increasing steps={int(np.sum(steps <= 0))}; "
+              f"line_validity values={np.unique(lines.line_validity.values).tolist()}", flush=True)
+        if not valid.any():
+            raise RuntimeError("no provider line acquisition time in the native product")
+        if not np.all(steps > 0):
+            bad = np.flatnonzero(steps <= 0)[:5]
+            raise RuntimeError(f"ICD grid rows not strictly increasing at array rows {bad.tolist()}: "
+                               f"{[(int(row[i]), int(row[i + 1])) for i in bad]}")
         times = measured[valid]
         begin = np.datetime64(target.sensing_start.replace(tzinfo=None), "ns")
         end = np.datetime64(target.sensing_end.replace(tzinfo=None), "ns")
+        print(f"SEVIRI RSS line times: first={times[0]}; last={times[-1]}; catalogue interval={begin} to {end}; "
+              f"decreasing steps={int(np.sum(np.diff(times) < np.timedelta64(0, 'ns')))}; "
+              f"before start={int(np.sum(times < begin))}; after end={int(np.sum(times > end))}", flush=True)
         if not np.all(np.diff(times) >= np.timedelta64(0, "ns")) or np.any(times < begin) or np.any(times > end):
             raise RuntimeError("provider acquisition times must increase south to north inside catalogue sensing interval")
         coverage = lines.attrs["actual_coverage"]["VIS_IR"]
