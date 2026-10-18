@@ -49,7 +49,7 @@ pip install "spectraccess[landsat]"
 
 For Sentinel-3 SLSTR Level-1, install `spectraccess[slstr]` on Python 3.11
 or later. This extra includes Satpy 0.60.0 (GPLv3 or later).
-See [SLSTR native observations](docs/slstr-cdse.md).
+See [SLSTR native observations](https://github.com/SpectraWorksOSS/SpectrAccess/blob/main/docs/slstr-cdse.md).
 
 ## Quickstart
 
@@ -67,28 +67,28 @@ print(table.head())
 ## Credentials
 
 Run `spectraccess login <provider>` once for personal access, or hand over a
-credential source in code. See [credentials and migration to 0.2](docs/credentials.md).
+credential source in code. See [credentials and migration to 0.2](https://github.com/SpectraWorksOSS/SpectrAccess/blob/main/docs/credentials.md).
 Credential environment variables and provider-client login files are no longer read.
 
 ## Connectors
 
 | Connector | Status | Auth requirement |
 | --- | --- | --- |
-| MSG [SEVIRI](https://eo-atlas.org/products/sensor/seviri) | [Full-disc/RSS Level 1.5 native counts/radiance, measured line time and actual coverage](docs/seviri-eumetsat.md); product rows plus xarray reader | EUMETSAT consumer key/secret; MSG collection licence terms not yet confirmed (see the connector's DATA_TERMS.md); `spectraccess[seviri]` extra, Python 3.11+ |
-| Sentinel-3 [SLSTR](https://eo-atlas.org/products/sensor/slstr) | [SL_1_RBT native radiance/BT, flags, row time, uncertainty and tie-point geometry](docs/slstr-cdse.md); granule rows plus xarray reader | CDSE account; `spectraccess[slstr]` extra, Python 3.11+ |
-| NASA [VIIRS](https://eo-atlas.org/products/sensor/viirs) | [L1B IMG/MOD plus geolocation, cloud mask and cloud properties](docs/viirs-earthaccess.md); native values, flags, scan times and granule rows | Earthdata account; `spectraccess[viirs]` extra, Python 3.12+ |
-| MTG [FCI](https://eo-atlas.org/products/sensor/fci) | [10-minute L1c radiance and L2 cloud products, native grids, pixel time, QA and noise tables](docs/fci-eumetsat.md); repeat-cycle rows plus xarray reader | EUMETSAT consumer key/secret; `spectraccess[fci]` extra, Python 3.11+ |
+| MSG [SEVIRI](https://eo-atlas.org/products/sensor/seviri) | [Full-disc/RSS Level 1.5 native counts/radiance, measured line time and actual coverage](https://github.com/SpectraWorksOSS/SpectrAccess/blob/main/docs/seviri-eumetsat.md); product rows plus xarray reader | EUMETSAT consumer key/secret; MSG collection licence terms not yet confirmed (see the connector's DATA_TERMS.md); `spectraccess[seviri]` extra, Python 3.11+ |
+| Sentinel-3 [SLSTR](https://eo-atlas.org/products/sensor/slstr) | [SL_1_RBT native radiance/BT, flags, row time, uncertainty and tie-point geometry](https://github.com/SpectraWorksOSS/SpectrAccess/blob/main/docs/slstr-cdse.md); granule rows plus xarray reader | CDSE account; `spectraccess[slstr]` extra, Python 3.11+ |
+| NASA [VIIRS](https://eo-atlas.org/products/sensor/viirs) | [L1B IMG/MOD plus geolocation, cloud mask and cloud properties](https://github.com/SpectraWorksOSS/SpectrAccess/blob/main/docs/viirs-earthaccess.md); native values, flags, scan times and granule rows | Earthdata account; `spectraccess[viirs]` extra, Python 3.12+ |
+| MTG [FCI](https://eo-atlas.org/products/sensor/fci) | [10-minute L1c radiance and L2 cloud products, native grids, pixel time, QA and noise tables](https://github.com/SpectraWorksOSS/SpectrAccess/blob/main/docs/fci-eumetsat.md); repeat-cycle rows plus xarray reader | EUMETSAT consumer key/secret; `spectraccess[fci]` extra, Python 3.11+ |
 | GSICS GPPA | Available (EUMETSAT live, verified end-to-end; CMA catalog live but content-empty as of 2026-07-05; NOAA STAR pending, host unreachable 2026-07-05) | None for public THREDDS catalogs |
 | MODIS/VIIRS calibration LUT ([VIIRS](https://eo-atlas.org/products/sensor/viirs), [MODIS](https://eo-atlas.org/products/sensor/modis)) | VIIRS connector shape available; NOAA STAR F-factor THREDDS URL pending verification; MODIS planned | None for public VIIRS THREDDS; MODIS source design pending |
-| RadCalNet | Available (official JSON API; checked by hand against the live portal, 2026-07) | Free portal account; see [credentials](docs/credentials.md) |
-| Sentinel-2 CDSE ([MSI](https://eo-atlas.org/products/sensor/msi)) | Available (thin adapter over maintained `cdsetool`; public discovery, BYO-credential download) | None for catalogue discovery; free CDSE account for product download; see [credentials](docs/credentials.md) |
+| RadCalNet | Available (official JSON API; checked by hand against the live portal, 2026-07) | Free portal account; see [credentials](https://github.com/SpectraWorksOSS/SpectrAccess/blob/main/docs/credentials.md) |
+| Sentinel-2 CDSE ([MSI](https://eo-atlas.org/products/sensor/msi)) | Available (thin adapter over maintained `cdsetool`; public discovery, BYO-credential download) | None for catalogue discovery; free CDSE account for product download; see [credentials](https://github.com/SpectraWorksOSS/SpectrAccess/blob/main/docs/credentials.md) |
 | NASA AERONET v3 | Available (native client for the public v3 web service; per-band AOD, Angstrom exponent, precipitable water; 550 nm AOD interpolation helper) | None; cite AERONET and the site PI (see `DATA_TERMS.md`) |
-| CAMS EAC4 / JASMIN ([CAMS forecast](https://eo-atlas.org/data_products/cams-global-forecast)) | Available (JASMIN cache access plus thin ADS adapter over maintained `cdsapi`; explicit CAMS forecast product for dates EAC4 does not yet cover) | None for JASMIN, whose public mirror currently holds files only up to 2025-10-03; free ADS account/token for later dates and automatic fallback; see [credentials](docs/credentials.md) |
-| NASA EMIT L1B/L2A ([EMIT](https://eo-atlas.org/products/sensor/emit)) | Available (thin adapter over maintained `earthaccess`) | None for CMR discovery; free Earthdata Login for protected NetCDF download; see [credentials](docs/credentials.md) |
-| Landsat 8/9 Collection 2 L1TP ([OLI](https://eo-atlas.org/products/sensor/oli), [OLI-2](https://eo-atlas.org/products/sensor/oli-2)) | Available (thin adapter over maintained EODAG USGS plugin; preserves tier and WRS-2 identity) | Free USGS EarthExplorer account and M2M application token; see [credentials](docs/credentials.md) |
-| Sentinel-3 OLCI L2 IWV | Available (CDSETool discovery, selective download, canonical pixel IWV and QA) | Public discovery; free CDSE account for download; see [credentials](docs/credentials.md) |
+| CAMS EAC4 / JASMIN ([CAMS forecast](https://eo-atlas.org/data_products/cams-global-forecast)) | Available (JASMIN cache access plus thin ADS adapter over maintained `cdsapi`; explicit CAMS forecast product for dates EAC4 does not yet cover) | None for JASMIN, whose public mirror currently holds files only up to 2025-10-03; free ADS account/token for later dates and automatic fallback; see [credentials](https://github.com/SpectraWorksOSS/SpectrAccess/blob/main/docs/credentials.md) |
+| NASA EMIT L1B/L2A ([EMIT](https://eo-atlas.org/products/sensor/emit)) | Available (thin adapter over maintained `earthaccess`) | None for CMR discovery; free Earthdata Login for protected NetCDF download; see [credentials](https://github.com/SpectraWorksOSS/SpectrAccess/blob/main/docs/credentials.md) |
+| Landsat 8/9 Collection 2 L1TP ([OLI](https://eo-atlas.org/products/sensor/oli), [OLI-2](https://eo-atlas.org/products/sensor/oli-2)) | Available (thin adapter over maintained EODAG USGS plugin; preserves tier and WRS-2 identity) | Free USGS EarthExplorer account and M2M application token; see [credentials](https://github.com/SpectraWorksOSS/SpectrAccess/blob/main/docs/credentials.md) |
+| Sentinel-3 OLCI L2 IWV | Available (CDSETool discovery, selective download, canonical pixel IWV and QA) | Public discovery; free CDSE account for download; see [credentials](https://github.com/SpectraWorksOSS/SpectrAccess/blob/main/docs/credentials.md) |
 | NGL GNSS troposphere | Available (station metadata, ZTD and gradients, no water-vapour conversion) | None; source licence conditions need provider confirmation where explicit permission is required |
-| CAMS EAC4 surface pressure | Available (regional single-epoch ADS request, canonical grid-cell pressure in Pa) | ADS account/token and accepted EAC4 terms; see [credentials](docs/credentials.md) |
+| CAMS EAC4 surface pressure | Available (regional single-epoch ADS request, canonical grid-cell pressure in Pa) | ADS account/token and accepted EAC4 terms; see [credentials](https://github.com/SpectraWorksOSS/SpectrAccess/blob/main/docs/credentials.md) |
 
 Sensor links in the table go to [EO-Atlas](https://eo-atlas.org/), SpectraWorks' open catalogue of Earth observation satellites, sensors and data products, for background on each instrument.
 
@@ -238,7 +238,7 @@ mask collection. RFLUNCERT and OBS are companion assets in both versions,
 rather than separate `EMITL2ARFLUNCERT` or `EMITL1BOBS` collections. For V002,
 discover the mask separately as `product="EMITL2AMASK", version="002"`.
 Fetch continues to download one selected file and verify its provider checksum.
-See the [NASA CMR sources and filename prefixes](src/spectraccess/connectors/emit_earthaccess/DATA_TERMS.md#collection-and-asset-layout)
+See the [NASA CMR sources and filename prefixes](https://github.com/SpectraWorksOSS/SpectrAccess/blob/main/src/spectraccess/connectors/emit_earthaccess/DATA_TERMS.md#collection-and-asset-layout)
 for the published collection layout.
 
 The Landsat connector applies the same boundary to Collection-2 L1TP products:
@@ -259,7 +259,7 @@ prior/averaging kernel, QA, assumptions and product versions. Existing
 outputs and uncertainty-status semantics stay unchanged. Missing optional fields
 mean unknown. The new OLCI, NGL and CAMS pressure paths emit canonical rows;
 their usage, field contract and release notes are in
-[atmospheric connectors](docs/atmospheric-connectors.md).
+[atmospheric connectors](https://github.com/SpectraWorksOSS/SpectrAccess/blob/main/docs/atmospheric-connectors.md).
 
 Maintainer: SpectraWorks B.V. Built by SpectraWorks, makers of [RefCal](https://spectraworks.nl/refcal), the cross-sensor calibration layer. Also from SpectraWorks: [EO-Atlas](https://eo-atlas.org/), a catalogue of Earth observation satellites, sensors and data products.
 
