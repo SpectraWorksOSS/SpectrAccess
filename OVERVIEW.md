@@ -1,6 +1,16 @@
 # spectrAccess
 
-spectrAccess is a Python client that finds and downloads spectral and atmospheric reference data from RadCalNet, GSICS, AERONET, CAMS, Landsat, Sentinel-2 and NASA EMIT, and parses metadata into pandas DataFrames. GSICS, RadCalNet and AERONET measurements can also be returned in one shared schema where every value carries an uncertainty record and its source, URL and retrieval time (see Canonical schema below). Sentinel-2 and Landsat return scene metadata. EMIT also reads local reflectance cubes into xarray Datasets. CAMS returns a table of the downloaded files.
+**One Python interface for Earth observation satellite data and the reference measurements used to calibrate and validate it.**
+
+spectrAccess finds and downloads satellite products and calibration evidence straight from the agencies and networks that publish them:
+
+- **Satellite imagery and Level-1 products:** Sentinel-2 MSI L1C and Sentinel-3 SLSTR L1 (Copernicus Data Space Ecosystem), Landsat 8 and 9 Collection 2 L1TP (USGS), VIIRS L1B (NASA Earthdata), MTG FCI L1c and MSG SEVIRI Level 1.5 (EUMETSAT), and NASA EMIT L1B radiance and L2A hyperspectral reflectance.
+- **Calibration reference data:** RadCalNet ground-site measurements and GSICS inter-calibration corrections.
+- **Atmosphere:** AERONET aerosol optical depth and water vapour, CAMS reanalysis and forecast fields, Sentinel-3 OLCI water vapour and NGL GNSS tropospheric delay.
+
+Every connector follows the same `discover`, `fetch`, `parse` pattern. Tables come back as pandas DataFrames and gridded products as xarray Datasets. GSICS, RadCalNet and AERONET measurements can also be returned in one shared schema where every value carries an uncertainty record and its source, URL and retrieval time (see Canonical schema below).
+
+spectrAccess does not correct, calibrate or reprocess anything. It returns what each provider publishes, with the provider's own metadata, quality flags and uncertainty, so your processing starts from the source.
 
 It is written for remote sensing and Earth observation scientists, calibration engineers and satellite data providers who spend too much time on portal logins, file formats and unit conventions instead of the comparison itself.
 
@@ -260,6 +270,26 @@ outputs and uncertainty-status semantics stay unchanged. Missing optional fields
 mean unknown. The new OLCI, NGL and CAMS pressure paths emit canonical rows;
 their usage, field contract and release notes are in
 [atmospheric connectors](https://github.com/SpectraWorksOSS/SpectrAccess/blob/main/docs/atmospheric-connectors.md).
+
+## How spectrAccess relates to other tools
+
+- **earthaccess, EODAG, CDSETool, cdsapi, eumdac and Satpy.** spectrAccess builds on these maintained clients instead of replacing them. Each connector is a thin adapter that adds the shared `discover`, `fetch`, `parse` pattern, one way of handling credentials, and the provider's data terms.
+- **pystac-client and STAC catalogues.** STAC search finds imagery in cloud catalogues. spectrAccess talks to each provider's own archive or API, and puts ground reference networks and atmospheric products next to the imagery in one interface.
+- **Google Earth Engine, Sentinel Hub, openEO and other hosted platforms.** These process data on their servers. spectrAccess runs in your own Python environment and downloads the provider's original files, keeping the provider's metadata and uncertainty intact.
+
+## Frequently asked questions
+
+**Does spectrAccess download satellite imagery?**
+Yes. It discovers and downloads the provider's original Level-1 products for Sentinel-2, Sentinel-3 SLSTR, Landsat 8 and 9, VIIRS, MTG FCI, MSG SEVIRI and EMIT, along with EMIT L2A reflectance. See the Connectors table for each product.
+
+**Does it do atmospheric correction or calibration?**
+No. spectrAccess delivers the inputs for those steps (imagery, reference measurements, aerosol and water vapour data) exactly as published. The correction or calibration is up to your own processing.
+
+**Do I need accounts?**
+Several sources are public. Others need a free account with the provider (Copernicus Data Space, USGS, NASA Earthdata, EUMETSAT, ECMWF ADS or RadCalNet). Run `spectraccess login <provider>` once; see [credentials](https://github.com/SpectraWorksOSS/SpectrAccess/blob/main/docs/credentials.md).
+
+**Is it free to use?**
+The code is open source under Apache-2.0. The data stays under each provider's own terms, listed in each connector's `DATA_TERMS.md`.
 
 Maintainer: SpectraWorks B.V. Built by SpectraWorks, makers of [RefCal](https://spectraworks.nl/refcal), the cross-sensor calibration layer. Also from SpectraWorks: [EO-Atlas](https://eo-atlas.org/), a catalogue of Earth observation satellites, sensors and data products.
 
