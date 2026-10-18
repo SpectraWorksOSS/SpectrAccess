@@ -2,13 +2,13 @@
 
 **Satellite imagery and calibration reference data, through one Python interface.**
 
-spectrAccess is an open-source Python library that finds and downloads Earth observation satellite imagery and the reference data used to calibrate and validate it, through one interface. It goes straight to the agencies and networks that publish the data:
+spectrAccess is an open-source Python library that finds and downloads Earth observation satellite imagery and the reference data used to calibrate and validate it, through one interface. It fetches from the agencies and networks that publish the data, or their public archives:
 
-- **Satellite imagery and Level-1 products:** Sentinel-2 MSI L1C and Sentinel-3 SLSTR L1 (Copernicus Data Space Ecosystem), Landsat 8 and 9 Collection 2 L1TP (USGS), VIIRS L1B (NASA Earthdata), MTG FCI L1c and MSG SEVIRI Level 1.5 (EUMETSAT), and NASA EMIT L1B radiance and L2A hyperspectral reflectance.
+- **Satellite imagery:** Sentinel-2 MSI L1C and Sentinel-3 SLSTR L1 (Copernicus Data Space Ecosystem), Landsat 8 and 9 Collection 2 L1TP (USGS), VIIRS L1B (NASA Earthdata), MTG FCI L1c and MSG SEVIRI Level 1.5 (EUMETSAT), and NASA EMIT hyperspectral L1B radiance and L2A surface reflectance.
 - **Calibration reference data:** RadCalNet ground-site measurements and GSICS inter-calibration corrections.
 - **Atmosphere:** AERONET aerosol optical depth and water vapour, CAMS reanalysis and forecast fields, Sentinel-3 OLCI water vapour and NGL GNSS tropospheric delay.
 
-Every connector follows the same `discover`, `fetch`, `parse` pattern. Tables come back as pandas DataFrames and gridded products as xarray Datasets. GSICS, RadCalNet and AERONET measurements can also be returned in one shared schema where every value carries an uncertainty record and its source, URL and retrieval time (see Canonical schema below).
+Every connector follows the same `discover`, `fetch`, `parse` pattern. Tables come back as pandas DataFrames and gridded products as xarray Datasets. Measurements from the reference and atmospheric connectors can also be returned in one shared schema where every value carries an uncertainty record and its source, URL and retrieval time (Canonical schema below lists which).
 
 spectrAccess does not correct, calibrate or reprocess anything. It returns what each provider publishes, keeping the provider's metadata, quality flags and uncertainty wherever the provider supplies them, so your processing starts from the source.
 
@@ -63,7 +63,13 @@ See [SLSTR native observations](https://github.com/SpectraWorksOSS/SpectrAccess/
 
 ## Quickstart
 
-Find and download Sentinel-2 L1C imagery for one tile and month (discovery is public; the download needs a free Copernicus Data Space account, see Credentials):
+Find and download Sentinel-2 L1C imagery for one tile and month. Install the Sentinel-2 extra first:
+
+```bash
+pip install "spectraccess[cdse]"
+```
+
+Discovery is public; the download needs a free Copernicus Data Space account (see Credentials).
 
 ```python
 from datetime import date
@@ -288,7 +294,7 @@ their usage, field contract and release notes are in
 
 - **earthaccess, EODAG, CDSETool, cdsapi, eumdac and Satpy.** Where a provider has a maintained Python client, spectrAccess builds on it instead of replacing it. Those connectors are thin adapters that add the shared `discover`, `fetch`, `parse` pattern, one way of handling credentials, and a record of the provider's data terms. If you only need one archive, its own client may be all you need; spectrAccess helps when one analysis draws on several.
 - **pystac-client and STAC catalogues.** STAC search finds imagery in cloud catalogues. spectrAccess talks to each provider's own archive or API, and puts ground reference networks and atmospheric products next to the imagery in one interface.
-- **Google Earth Engine, Sentinel Hub, openEO and other hosted platforms.** These run processing on their own servers. spectrAccess runs in your own Python environment and downloads the provider's original files to your machine. The two work together: use spectrAccess when you need the files as published, or ground and atmospheric reference data alongside them.
+- **Google Earth Engine, Sentinel Hub, openEO and other hosted platforms.** These run processing on their own servers. spectrAccess runs in your own Python environment and downloads the provider's original files to your machine. They work together: use spectrAccess when you need the files as published, or ground and atmospheric reference data alongside them.
 
 ## Frequently asked questions
 
@@ -296,13 +302,13 @@ their usage, field contract and release notes are in
 Yes. It discovers and downloads the provider's original Level-1 products for Sentinel-2, Sentinel-3 SLSTR, Landsat 8 and 9, VIIRS, MTG FCI, MSG SEVIRI and EMIT, along with EMIT L2A reflectance. See the Connectors table for each product.
 
 **How do I download Sentinel-2, Landsat, VIIRS or SEVIRI data in Python?**
-`pip install spectraccess` with the extra named in the Connectors table, run `spectraccess login <provider>` once, then call `discover` and `fetch` on that connector. See Quickstart.
+Install spectrAccess with that connector's extra (listed under Install), for example `pip install "spectraccess[cdse]"` for Sentinel-2. Run `spectraccess login <provider>` once, then call `discover` and `fetch` on the connector. See Quickstart.
 
 **Is there a Python library like earthaccess for Copernicus, USGS and EUMETSAT data?**
-spectrAccess uses earthaccess for NASA sources and puts Copernicus Data Space, USGS and EUMETSAT products behind the same `discover`, `fetch`, `parse` pattern.
+Yes. spectrAccess puts Copernicus Data Space, USGS and EUMETSAT products behind the same `discover`, `fetch`, `parse` pattern, and uses earthaccess itself for NASA EMIT and VIIRS.
 
 **Does it handle Level-2 or analysis-ready data?**
-Mostly it returns Level-1 products as published. EMIT L2A reflectance and some atmospheric Level-2 products are included. It does not produce Level-2 data itself.
+Mostly it returns Level-1 products as published. It also fetches some Level-2 products as their providers publish them: EMIT L2A surface reflectance, VIIRS and FCI cloud products, and Sentinel-3 OLCI water vapour. It does not produce Level-2 data itself.
 
 **Does it do atmospheric correction or calibration?**
 No. spectrAccess delivers the inputs for those steps (imagery, reference measurements, aerosol and water vapour data) exactly as published. The correction or calibration is up to your own processing.

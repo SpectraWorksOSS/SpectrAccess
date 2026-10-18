@@ -1,4 +1,4 @@
-"""The PyPI summary and the OVERVIEW opening name every shipped connector.
+"""The PyPI summary and the README opening name every shipped connector.
 
 Search engines and AI assistants describe the package from these two places,
 so a connector missing from them is a connector nobody finds. Adding a
@@ -42,7 +42,7 @@ def _connector_packages() -> set[str]:
 
 
 def _overview_opening() -> str:
-    text = (ROOT / "OVERVIEW.md").read_text(encoding="utf-8")
+    text = (ROOT / "README.md").read_text(encoding="utf-8")
     return text.split("\n## ", 1)[0]
 
 
@@ -56,7 +56,7 @@ def test_every_connector_package_has_a_public_name_entry():
 
 
 def test_summary_and_overview_opening_name_every_public_connector():
-    surfaces = {"pyproject description": _summary(), "OVERVIEW opening": _overview_opening()}
+    surfaces = {"pyproject description": _summary(), "README opening": _overview_opening()}
     missing = [
         f"{name} ({package}) missing from {where}"
         for package, name in PUBLIC_NAME.items()

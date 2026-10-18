@@ -45,7 +45,7 @@ write release entries by hand.
 
 ## Public Copy
 
-`OVERVIEW.md` is the PyPI project page. It, `CHANGELOG.md`, this file,
+`README.md` is the PyPI project page and the GitHub front page. It, `CHANGELOG.md`, this file,
 `CITATION.cff`, `docs/credentials.md`, the `pyproject.toml` metadata, each connector's `DATA_TERMS.md`,
 and commit messages are checked in CI by `scripts/check_public_copy.py`: plain
 ASCII hyphens and straight quotes only, no double hyphen used as a dash. Run it

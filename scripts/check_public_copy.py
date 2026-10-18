@@ -1,6 +1,6 @@
 """Check the project's public copy for text that should not ship.
 
-Public copy is what readers see outside the code: the PyPI page (OVERVIEW.md
+Public copy is what readers see outside the code: the PyPI page (README.md
 and pyproject.toml metadata), CHANGELOG.md, CONTRIBUTING.md, CITATION.cff, the
 per-connector DATA_TERMS.md files, and commit messages (release notes are
 generated from them).
@@ -34,7 +34,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 PUBLIC_COPY = (
-    "OVERVIEW.md",
+    "README.md",
     "docs/credentials.md",
     "CHANGELOG.md",
     "CONTRIBUTING.md",

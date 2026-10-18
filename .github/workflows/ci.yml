@@ -26,7 +26,7 @@ jobs:
         run: pytest
 
   public-copy:
-    # OVERVIEW.md, CHANGELOG.md, metadata and DATA_TERMS.md files are what
+    # README.md, CHANGELOG.md, metadata and DATA_TERMS.md files are what
     # readers see on PyPI and GitHub; keep them free of typographic dashes,
     # curly quotes and internal names. The tests hold the control cases.
     runs-on: ubuntu-latest
