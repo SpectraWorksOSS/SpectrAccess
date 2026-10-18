@@ -7,7 +7,7 @@ connector package without naming it here fails this test.
 
 from __future__ import annotations
 
-import tomllib
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -47,8 +47,9 @@ def _overview_opening() -> str:
 
 
 def _summary() -> str:
-    with open(ROOT / "pyproject.toml", "rb") as handle:
-        return tomllib.load(handle)["project"]["description"]
+    # Regex, not tomllib: the suite also runs on Python 3.10.
+    pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    return re.search(r'^description = "(.*)"$', pyproject, re.MULTILINE).group(1)
 
 
 def test_every_connector_package_has_a_public_name_entry():
