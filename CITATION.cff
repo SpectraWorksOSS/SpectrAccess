@@ -3,7 +3,7 @@ message: "If you use spectrAccess, please cite it as below."
 title: "spectrAccess"
 authors:
   - name: "SpectraWorks B.V."
-version: "0.6.0" # x-release-please-version
+version: "0.6.1" # x-release-please-version
 license: "Apache-2.0"
 repository-code: "https://github.com/SpectraWorksOSS/SpectrAccess"
 abstract: "spectrAccess is one Python interface for Earth observation satellite data and the reference measurements used to calibrate and validate it. It finds and downloads satellite imagery, mostly Level-1 (Sentinel-2, Sentinel-3, Landsat, VIIRS, MTG FCI, MSG SEVIRI, EMIT), and calibration and atmospheric reference data (RadCalNet, GSICS, AERONET, CAMS, Sentinel-3 OLCI water vapour, GNSS) as each provider publishes them, keeping provider metadata, and uncertainty where the provider publishes it. It does not correct or calibrate the data."
