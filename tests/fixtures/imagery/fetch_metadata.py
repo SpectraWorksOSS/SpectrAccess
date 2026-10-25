@@ -99,7 +99,13 @@ fetch("https://raw.githubusercontent.com/contrailcirrus/pycontrails/" + commit +
       HERE / "vendor" / "sentinel_metadata.py")
 fetch("https://raw.githubusercontent.com/contrailcirrus/pycontrails/" + commit + "/LICENSE",
       HERE / "vendor" / "PYCONTRAILS_LICENSE")
-fetch("https://sentiwiki.copernicus.eu/__attachments/a_ece6183b6698587e7ecd9804974bece3d82e39e151aa5aeca9d8fd95e1f1558c/COPE-GSEG-EOPG-TN-15-0007%20-%20Sentinel-2%20Spectral%20Response%20Functions%202024%20-%204.0.xlsx",
-      HERE / "s2_srf_v4.xlsx")
+notice_path = HERE / "vendor" / "PYCONTRAILS_NOTICE"
+notice = fetch("https://raw.githubusercontent.com/contrailcirrus/pycontrails/" + commit + "/NOTICE", notice_path)
+notice_path.write_bytes(notice.splitlines()[0] + b"\n")
+entry = manifest["vendor/PYCONTRAILS_NOTICE"]
+entry["provider_sha256"] = entry["sha256"]
+entry["sha256"] = hashlib.sha256(notice_path.read_bytes()).hexdigest()
+entry["extraction"] = "Copyright attribution retained; unrelated CoCiP attribution omitted"
+# ESA SRF document is fetched separately into an ignored cache.
 (HERE / "sources.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 print("Metadata fixtures:", len(manifest), "files; no image rasters")

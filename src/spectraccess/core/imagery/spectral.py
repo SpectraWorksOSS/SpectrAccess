@@ -9,6 +9,9 @@ import zipfile
 import numpy as np
 import xarray as xr
 
+ESA_SRF_URL = 'https://sentiwiki.copernicus.eu/__attachments/a_ece6183b6698587e7ecd9804974bece3d82e39e151aa5aeca9d8fd95e1f1558c/COPE-GSEG-EOPG-TN-15-0007%20-%20Sentinel-2%20Spectral%20Response%20Functions%202024%20-%204.0.xlsx'
+ESA_SRF_SHA256 = '1a9edc27d692a570911a460d589f188da0fc3e27f0b0bd1ad322059c380519b0'
+
 USGS_RSR = {
     "LANDSAT_8": ("L8_OLI_RSR.xlsx", "v1.2", "6b8bb8bf0c6f1a3cef56eb497096283f6cd66f1af163989eb03c59aa6588cfe0"),
     "LANDSAT_9": ("L9_OLI2_RSR.xlsx", "v2-1", "31b6c3c618716419d2c2a650b77ae8c4604abde36af84c7bd38031e58c174812"),
@@ -83,6 +86,8 @@ def read_esa_srf(path, *, unit, version="4.0"):
     """
     if version != "4.0" or unit not in {"S2A", "S2B", "S2C"}:
         raise ValueError("this workbook reader supports ESA v4.0, S2A/S2B/S2C")
+    if hashlib.sha256(Path(path).read_bytes()).hexdigest() != ESA_SRF_SHA256:
+        raise ValueError("ESA v4.0 SRF checksum differs from its provenance pin")
     ns = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
     sheet = {"S2A": 2, "S2B": 3, "S2C": 4}[unit]
     with zipfile.ZipFile(path) as workbook:
@@ -108,7 +113,7 @@ def read_esa_srf(path, *, unit, version="4.0"):
                      {"units": "1", "basis": "published", "uncertainty_status": "unknown"}),
     }, coords={"band": bands}, attrs={
         "representation": "tabulated", "flight_unit": unit, "source_version": version,
-        "source": str(Path(path)), "identity": json.dumps(["ESA S2-SRF", version, unit]),
+        "source": str(Path(path)), "source_sha256": ESA_SRF_SHA256, "source_url": ESA_SRF_URL, "identity": json.dumps(["ESA S2-SRF", version, unit]),
         "normalisation": "as published", "source_document": "COPE-GSEG-EOPG-TN-15-0007",
     })
 

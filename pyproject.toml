@@ -153,6 +153,7 @@ exclude = [
   "/.worktree-info",
   "/.venv",
   "/dist",
+  "/tests/fixtures/imagery/.cache",
 ]
 
 [tool.pytest.ini_options]

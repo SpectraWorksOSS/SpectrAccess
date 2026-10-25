@@ -108,13 +108,21 @@ indices and fills. A cropped raw swath does not renumber those indices.
 
 `primary_quantity` names the least-converted calibration quantity.
 OLI/MSI start in reflectance, EMIT in radiance. Other layers remain available
-as independently labelled starting points. Landsat also retains delivered DN.
+as explicitly labelled conversions of the primary quantity. These deterministic
+conversions are fully correlated with the primary and supply no independent
+calibration evidence. A solar-model conversion also introduces the solar-model
+uncertainty, which these readers leave unknown. Landsat radiance evaluates
+MTL coefficients on the same DN and is likewise not independent evidence.
+Landsat also retains delivered DN.
 
 Every measurement group has a JSON `stage` attribute with `quantity`,
 `geometry_kind` (`map_grid` or `sensor_geometry_with_lookup`) and
 `processing_chain`. Each step records `kind`, `actor`, `processor` and
 `parameters`. `provider_level` is only the provider's label, never a substitute
-for stage. An empty chain represents an already unpacked raw counts cube.
+for stage. The chain describes the primary quantity in chronological order.
+Conversions of other layers are described by those layers' `conversion`
+attributes, outside the primary chain. An empty chain represents an already
+unpacked raw counts cube.
 
 Landsat MTL reflectance is rho-prime, **without** the sun-angle term. MTL
 radiance uses the provider coefficients directly, with per-micrometre units.
@@ -125,10 +133,11 @@ metadata. Earth-sun distance is retained where published.
 S2 reflectance uses `(DN + RADIO_ADD_OFFSET) / QUANTIFICATION_VALUE`; DN zero
 is no data. From PB 04.00 a missing per-band offset is an error. Radiance is
 `rho * SOLAR_IRRADIANCE * U * cos(SZA) / pi`, in per-micrometre units. Its
-processing step retains each band's irradiance, U and sun-grid convention.
+`conversion` attribute retains each band's irradiance, U and sun-grid convention.
 **This inversion is not exact**: an `operator_declared` AssumptionRecord names
-bilinear interpolation of the tile's 5 km sun grid and the 70 degree zenith
-clip. The source solar spectrum behind the provider band irradiances remains
+bilinear interpolation of the tile's 5 km sun grid. The 70 degree zenith
+clip is a separate `documented` record, sourced to
+[SentiWiki S2 Products](https://sentiwiki.copernicus.eu/web/s2-products). The source solar spectrum behind the provider band irradiances remains
 unstated. S2 radiance is always labelled evaluated, never published.
 
 The connector's `processing.py` table cites SentiWiki's Collection-1/PB
@@ -146,6 +155,17 @@ wavelength units**, plus a named `solar_spectrum`. The caller spectrum is
 declared as an assumption. OBS sun zenith and Earth-sun distance enter the
 conversion. Without a spectrum, the reflectance layer is explicitly unknown.
 
+Every `toa_reflectance` layer requires an enumerated `sun_normalisation`:
+
+| Value | Definition |
+| --- | --- |
+| `rho_prime_without_sun_term` | Rho-prime without division by cos(sun zenith), as in Landsat MTL |
+| `true_rho_with_70_degree_clip` | Rho includes the sun term, with provider sun zenith clipped at 70 degrees, as in S2 L1C |
+| `true_rho_without_clip` | Rho includes division by cos(sun zenith), without clipping, as in EMIT conversion |
+
+The convention is required even for an explicitly unknown reflectance layer;
+it describes the intended quantity, not availability of its values.
+
 ## Two descriptor axes, unknowns and assumptions
 
 Each known descriptor has two independent attributes:
@@ -154,6 +174,36 @@ Each known descriptor has two independent attributes:
 | --- | --- |
 | `basis` | `published`, `evaluated_from_provider_model`, `interpolated_from_provider_grid`, `scene_nominal`, `unknown` |
 | `uncertainty_status` | `provided`, `derived`, `prior`, `unknown` |
+
+Value basis definitions:
+
+| Value | Meaning |
+| --- | --- |
+| `published` | Values supplied directly by the provider |
+| `evaluated_from_provider_model` | Values calculated from provider coefficients or a provider model |
+| `interpolated_from_provider_grid` | Values interpolated between provider grid nodes |
+| `scene_nominal` | A scene-level nominal value, not a per-pixel evaluation |
+| `unknown` | No value basis is established; missing values carry a reason |
+
+Uncertainty statuses use the meanings in
+[`core/schema.py`, `UncertaintyStatus`](../src/spectraccess/core/schema.py):
+`provided` means supplied by the source; `derived` means calculated from other
+information; `prior` means assumed rather than measured for these samples;
+`unknown` means no uncertainty value is available. These describe uncertainty
+provenance, independently of value basis. A `provided` record must carry scalar
+attributes `uncertainty_value` (finite, nonnegative, in the value's units),
+`uncertainty_k` (finite positive coverage factor), and `uncertainty_kind`
+(`standard`, requiring k=1, or `expanded`). No reader currently emits provided
+uncertainties. Correlation is not inferred from these fields.
+
+For concatenated S2 bands, `per_band_metadata` is a JSON object keyed by band
+containing each band's complete descriptor attributes, including basis, reason,
+source, assumptions and uncertainty status. With `provenance_scope="per_band"`,
+these keyed records are authoritative. Variable-level attributes contain only
+shared metadata; a fallback `basis="unknown"` or `uncertainty_status="unknown"`
+when records differ is not a statement about individual bands. Consumers must
+select the band record as well as its values. This applies to time, detector
+mapping and angles, including explicit unknown records when metadata is absent.
 
 Evaluation does not establish uncertainty. Defaults only describe the absence
 of uncertainty information; they never manufacture a quantity or geometry.
@@ -184,7 +234,7 @@ Representation is `tabulated` (`wavelength`, `response`), `parametric`
 
 S2 embedded curves keep identity `(embedded, PB, flight unit, product id)`;
 they have no invented version number. `read_esa_srf(path, unit="S2B")` reads
-the local ESA v4.0 workbook as a **separate** entry; pass it through
+the local ESA v4.0 workbook, verified against a pinned SHA256, as a **separate** entry; pass it through
 `external_srfs={"esa_v4": table}`. Metadata fixtures compare PB 03.00 and
 05.10 embedded S2B curves with ESA v4.0. Both match at their published samples.
 That result does not establish equality for other baselines or flight units.
@@ -229,7 +279,7 @@ round-trip tests cover it, but there is no separate Zarr writer API.
 
 | Source | Imagery API status |
 | --- | --- |
-| Landsat 8/9 OLI L1 | Experimental; coefficient layers and per-SCA ANG evaluation; external RSR input |
+| Landsat 8/9 OLI L1 | Experimental; coefficient layers and per-SCA ANG evaluation; bundled pinned USGS RSR, optional external RSR |
 | Sentinel-2 L1C SAFE | Experimental; native resolution groups, per-detector angles, LOS time where inputs exist, embedded SRFs |
 | EMIT L1B RAD+OBS | Experimental; raw geometry, UTC line time, GLT, parametric SRF |
 | Existing EMIT L2A reader | Existing `read_cube` unchanged |

@@ -7,6 +7,7 @@ writer preserve the same contract. Optional absent fields remain unstated.
 from __future__ import annotations
 
 import json
+from numbers import Real
 from pathlib import Path
 
 import numpy as np
@@ -18,6 +19,10 @@ SCHEMA_VERSION = "0.1.0"
 VALUE_BASES = {
     "published", "evaluated_from_provider_model", "scene_nominal",
     "interpolated_from_provider_grid", "unknown",
+}
+SUN_NORMALISATIONS = {
+    "rho_prime_without_sun_term", "true_rho_with_70_degree_clip",
+    "true_rho_without_clip",
 }
 UNCERTAINTY_STATUSES = {"provided", "derived", "prior", "unknown"}
 QUANTITIES = {
@@ -105,6 +110,18 @@ def _decode(attrs, name, errors, path):
         return None
 
 
+def _validate_uncertainty(attrs, errors, path):
+    if attrs.get("uncertainty_status") != "provided":
+        return
+    value, k = attrs.get("uncertainty_value"), attrs.get("uncertainty_k")
+    if (not isinstance(value, Real) or not np.isfinite(value) or value < 0
+            or not isinstance(k, Real) or not np.isfinite(k) or k <= 0
+            or attrs.get("uncertainty_kind") not in {"standard", "expanded"}
+            or (attrs.get("uncertainty_kind") == "standard" and k != 1)):
+        errors.append(f"{path}: provided uncertainty needs finite nonnegative uncertainty_value, "
+                      "positive uncertainty_k and standard (k=1) or expanded uncertainty_kind")
+
+
 def validate(tree, *, raise_errors=True):
     """Check known contract fields. Accept unknown additional fields.
 
@@ -155,6 +172,8 @@ def validate(tree, *, raise_errors=True):
                 if ds.attrs.get("sensor") == "MSI" and name == "radiance":
                     if arr.attrs.get("basis") != "evaluated_from_provider_model":
                         errors.append(f"{path}/radiance: MSI radiance must be evaluated")
+                if name == "toa_reflectance" and arr.attrs.get("sun_normalisation") not in SUN_NORMALISATIONS:
+                    errors.append(f"{path}/{name}: valid sun_normalisation required")
                 if arr.attrs.get("conversion"):
                     conversion = _decode(arr.attrs, "conversion", errors, path + "/" + name)
                     if not isinstance(conversion, dict) or not all(
@@ -168,6 +187,18 @@ def validate(tree, *, raise_errors=True):
                     errors.append(f"{path}/{name}: descriptor needs basis")
                 if arr.attrs.get("uncertainty_status") not in UNCERTAINTY_STATUSES:
                     errors.append(f"{path}/{name}: descriptor needs uncertainty_status")
+                _validate_uncertainty(arr.attrs, errors, path + "/" + name)
+                if "per_band_metadata" in arr.attrs:
+                    metadata = _decode(arr.attrs, "per_band_metadata", errors, path + "/" + name)
+                    keys = {str(b) for b in ds.band.values} if "band" in ds.coords else set()
+                    if not isinstance(metadata, dict) or set(metadata) != keys:
+                        errors.append(f"{path}/{name}: per_band_metadata must cover band keys")
+                    else:
+                        for band, record in metadata.items():
+                            if not isinstance(record, dict) or record.get("basis") not in VALUE_BASES or record.get("uncertainty_status") not in UNCERTAINTY_STATUSES:
+                                errors.append(f"{path}/{name}/{band}: invalid per-band descriptor axes")
+                            else:
+                                _validate_uncertainty(record, errors, path + "/" + name + "/" + band)
                 if "assumptions" in arr.attrs:
                     assumptions = _decode(arr.attrs, "assumptions", errors, path + "/" + name)
                     if not isinstance(assumptions, list):
@@ -195,6 +226,7 @@ def validate(tree, *, raise_errors=True):
                     errors.append(f"{path}/{name}: SRF descriptor needs basis")
                 if arr.attrs.get("uncertainty_status") not in UNCERTAINTY_STATUSES:
                     errors.append(f"{path}/{name}: SRF descriptor needs uncertainty_status")
+                _validate_uncertainty(arr.attrs, errors, path + "/" + name)
             if representation == "tabulated" and not {"wavelength", "response"} <= set(ds.variables):
                 errors.append(f"{path}: tabulated SRF needs wavelength and response")
             if representation == "parametric" and not (
@@ -231,7 +263,17 @@ def site_box(tree, bounds):
         if not {"footprint_longitude", "footprint_latitude"} <= set(ds):
             raise ValueError("site_box requires raw native pixel footprints")
         lon, lat = ds.footprint_longitude, ds.footprint_latitude
-        keep = ((lon.max("vertex") >= west) & (lon.min("vertex") <= east)
+        # Unwrap each footprint around its first vertex, then compare all
+        # equivalent longitude branches. Preserve the native coordinates.
+        anchor = lon.isel(vertex=0)
+        physical = anchor + (lon - anchor + 180) % 360 - 180
+        centre = (west + east) / 2
+        physical = physical + 360 * np.floor((centre - physical.mean("vertex") + 180) / 360)
+        intersects_lon = xr.zeros_like(anchor, dtype=bool)
+        for shift in (-360, 0, 360):
+            intersects_lon |= ((physical.max("vertex") + shift >= west)
+                               & (physical.min("vertex") + shift <= east))
+        keep = (intersects_lon
                 & (lat.max("vertex") >= south) & (lat.min("vertex") <= north))
         slices = {}
         for dim in keep.dims:

@@ -127,3 +127,43 @@ def test_site_box_refuses_missing_footprints():
     node.dataset = node.to_dataset().drop_vars("footprint_longitude")
     with pytest.raises(ValueError, match="footprints"):
         site_box(tree, (0., 0., 1., 1.))
+
+
+@pytest.mark.parametrize("normalisation", [None, "free text", "rho_prime_without_sun_term",
+    "true_rho_with_70_degree_clip", "true_rho_without_clip"])
+def test_reflectance_requires_enumerated_sun_normalisation(normalisation):
+    tree = synthetic()
+    ds = tree["/measurements/native"].to_dataset()
+    ds["toa_reflectance"] = describe(ds.counts.copy(), basis="published", units="1")
+    if normalisation is not None:
+        ds.toa_reflectance.attrs["sun_normalisation"] = normalisation
+    ds.attrs["quantity_layers"] = json.dumps(["counts", "toa_reflectance"])
+    tree["/measurements/native"].dataset = ds
+    errors = validate(tree, raise_errors=False)
+    assert bool(errors) == (normalisation in {None, "free text"})
+
+
+@pytest.mark.parametrize("attrs,valid", [
+    ({}, False),
+    ({"uncertainty_value": .1, "uncertainty_k": 1, "uncertainty_kind": "standard"}, True),
+    ({"uncertainty_value": .2, "uncertainty_k": 2, "uncertainty_kind": "expanded"}, True),
+    ({"uncertainty_value": .2, "uncertainty_k": 2, "uncertainty_kind": "standard"}, False),
+    ({"uncertainty_value": -.1, "uncertainty_k": 1, "uncertainty_kind": "standard"}, False),
+    ({"uncertainty_value": .1, "uncertainty_k": 0, "uncertainty_kind": "expanded"}, False),
+    ({"uncertainty_value": float("nan"), "uncertainty_k": 1, "uncertainty_kind": "standard"}, False),
+])
+def test_provided_uncertainty_requires_value_coverage_and_kind(attrs, valid):
+    tree = synthetic()
+    tree["/measurements/native/time"].attrs.update(uncertainty_status="provided", **attrs)
+    errors = validate(tree, raise_errors=False)
+    assert (not errors) == valid
+
+
+def test_provided_uncertainty_netcdf_roundtrip(tmp_path):
+    tree = synthetic()
+    tree["/measurements/native/time"].attrs.update(
+        uncertainty_status="provided", uncertainty_value=.2,
+        uncertainty_k=2, uncertainty_kind="expanded")
+    write_netcdf(tree, tmp_path / "provided.nc")
+    with open_netcdf(tmp_path / "provided.nc") as restored:
+        assert validate(restored) == []

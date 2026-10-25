@@ -10,11 +10,11 @@ spectrAccess is an open-source Python library that finds and downloads Earth obs
 
 Every connector follows the same `discover`, `fetch`, `parse` pattern. Tables come back as pandas DataFrames and gridded products as xarray Datasets. Measurements from the reference and atmospheric connectors can also be returned in one shared schema where every value carries an uncertainty record and its source, URL and retrieval time (Canonical schema below lists which).
 
-spectrAccess preserves provider files, metadata, quality flags and published uncertainty. Its experimental [described-sample imagery API](docs/imagery-form.md) also evaluates provider calibration and geometry models with explicit basis labels, retaining coefficients and declared assumptions alongside the values.
+spectrAccess preserves provider files, metadata, quality flags and published uncertainty. Its experimental [described-sample imagery API](https://github.com/SpectraWorksOSS/SpectrAccess/blob/main/docs/imagery-form.md) also evaluates provider calibration and geometry models with explicit basis labels, retaining coefficients and declared assumptions alongside the values.
 
 It is written for Earth observation scientists, calibration and validation engineers, data engineers and satellite data providers who would rather spend their time on the analysis than on portal logins, file formats and unit conventions.
 
-spectrAccess fetches data on your behalf, using your own free account where a source needs one. It never re-serves or redistributes source data; each connector's `DATA_TERMS.md` lists that provider's terms and citation requirements.
+spectrAccess fetches data on your behalf, using your own free account where a source needs one. The download service does not re-serve source data. The package bundles USGS spectral response reference tables, and the source distribution includes test metadata; each connector's `DATA_TERMS.md` lists that provider's terms and citation requirements.
 
 ## Install
 
@@ -311,7 +311,7 @@ Yes. spectrAccess puts Copernicus Data Space, USGS and EUMETSAT products behind 
 Mostly it returns Level-1 products as published. It also fetches some Level-2 products as their providers publish them: EMIT L2A surface reflectance, VIIRS and FCI cloud products, and Sentinel-3 OLCI water vapour. It does not produce Level-2 data itself.
 
 **Does it do atmospheric correction or calibration?**
-spectrAccess delivers provider inputs for those steps (imagery, reference measurements, aerosol and water vapour data). The experimental [imagery API](docs/imagery-form.md) additionally exposes labelled provider-model evaluations and quantity conversions, with their provenance and assumptions. Atmospheric correction and your own calibration analysis remain in your processing.
+spectrAccess delivers provider inputs for those steps (imagery, reference measurements, aerosol and water vapour data). The experimental [imagery API](https://github.com/SpectraWorksOSS/SpectrAccess/blob/main/docs/imagery-form.md) additionally exposes labelled provider-model evaluations and quantity conversions, with their provenance and assumptions. Atmospheric correction and your own calibration analysis remain in your processing.
 
 **Do I need accounts?**
 Several sources are public. Others need a free account with the provider (Copernicus Data Space, USGS, NASA Earthdata, EUMETSAT, ECMWF ADS or RadCalNet). Run `spectraccess login <provider>` once; see [credentials](https://github.com/SpectraWorksOSS/SpectrAccess/blob/main/docs/credentials.md).

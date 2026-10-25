@@ -161,6 +161,7 @@ def test_emit_raw_pixels_time_srf_and_unknown_conversion(tmp_path):
         assert group.time.dims == ("line",)
         assert group.time.attrs["basis"] == "published"
         assert group.toa_reflectance.attrs["basis"] == "unknown"
+        assert group.toa_reflectance.attrs["sun_normalisation"] == "true_rho_without_clip"
         assert tree["/geolocation_lookup/glt_x"].shape == (4, 5)
         assert tree["/spectral_responses/emit"].attrs["shape_basis"] == "operator_declared"
         assert validate(tree) == []
@@ -193,9 +194,9 @@ def test_s2_refuses_metadata_from_another_grid(tmp_path):
         read_s2(root)
 
 
-def test_external_versioned_srf_keeps_separate_identity(tmp_path):
+def test_external_versioned_srf_keeps_separate_identity(tmp_path, esa_srf_path):
     from spectraccess.core.imagery import read_esa_srf
-    srfs = read_esa_srf(FIXTURES / "s2_srf_v4.xlsx", unit="S2B")
+    srfs = read_esa_srf(esa_srf_path, unit="S2B")
     tree = read_s2(safe(tmp_path), external_srfs={"esa_v4": srfs})
     assert tree["/spectral_responses/esa_v4"].attrs["source_version"] == "4.0"
     assert "source_version" not in tree["/spectral_responses/embedded_B02"].attrs
@@ -231,3 +232,89 @@ RADIANCE_ADD_BAND_2 = -1.0
     for name in ("time", "view_zenith", "sun_zenith"):
         assert json.loads(tree[f"/measurements/B2/{name}"].attrs["assumptions"])[0]["assumption_id"] == "landsat_band_mean_height"
     assert validate(tree) == []
+
+
+def test_emit_site_box_west_of_dateline_keeps_native_indices(tmp_path):
+    rad, obs = emit(tmp_path)
+    with xr.open_dataset(rad, group="location", engine="h5netcdf") as ds:
+        location = ds.load()
+    location["lon"].values[:] = [179.999, -179.999, -179.998, -179.997]
+    location.to_netcdf(rad, group="location", mode="a", engine="h5netcdf")
+    with read_emit(rad, observation=obs,
+                   bounds=(-179.9994, 51.0006, -179.9986, 51.0014)) as tree:
+        group = tree["/measurements/swath"]
+        assert group.radiance.shape == (2, 1, 1)
+        np.testing.assert_array_equal(group.column, [1])
+        np.testing.assert_array_equal(group.line, [1])
+        assert group.longitude.item() == pytest.approx(-179.999)
+        assert validate(tree) == []
+
+
+@pytest.mark.parametrize("order", [("B02", "B03"), ("B03", "B02")])
+def test_s2_per_band_descriptor_provenance_survives_concat(tmp_path, order):
+    import xml.etree.ElementTree as ET
+    root = safe(tmp_path)
+    tile_path = root / "GRANULE/synthetic/MTD_TL.xml"
+    tile = xml(tile_path)
+    for parent in tile.iter():
+        for child in list(parent):
+            if child.tag == "Viewing_Incidence_Angles_Grids":
+                if child.attrib["bandId"] == "1":
+                    parent.remove(child)
+                elif child.attrib["bandId"] == "2":
+                    for values in child.iter("VALUES"):
+                        values.text = " ".join(["5"] * len(values.text.split()))
+    ET.ElementTree(tile).write(tile_path, encoding="utf-8")
+    # Supply a mask only for B03: published availability must survive concat.
+    raster(root / "GRANULE/synthetic/MSK_DETFOO_B03.jp2",
+           np.ones((2, 2), dtype="uint16"),
+           origin=(float(text(tile, "Geoposition/ULX")), float(text(tile, "Geoposition/ULY"))))
+    strip = root / "DATASTRIP/synthetic/MTD_DS.xml"
+    strip.parent.mkdir(parents=True)
+    shutil.copyfile(FIXTURES / "20240501_MTD_DS.xml", strip)
+    tree = read_s2(root, bands=order)
+    group = tree["/measurements/r10m"]
+    for name in ("view_zenith", "view_azimuth"):
+        arr = group[name]
+        records = json.loads(arr.attrs["per_band_metadata"])
+        assert records["B02"]["basis"] == "unknown"
+        assert "grids missing" in records["B02"]["reason"]
+        assert records["B03"]["basis"] == "interpolated_from_provider_grid"
+        assert records["B03"]["source"] == str(tile_path)
+        assert np.isfinite(arr.sel(band="B03")).any()
+        assert not np.isfinite(arr.sel(band="B02")).any()
+    records = json.loads(group.time.attrs["per_band_metadata"])
+    assert "grids missing" in records["B02"]["reason"]
+    assert records["B03"]["basis"] == "evaluated_from_provider_model"
+    assert records["B03"]["source"].startswith("MTD_DS GPS_Point")
+    assert json.loads(records["B03"]["assumptions"])[0]["assumption_id"] == "s2_los_time"
+    records = json.loads(group.detector_index.attrs["per_band_metadata"])
+    assert records["B02"]["basis"] == "unknown"
+    assert records["B03"]["basis"] == "published"
+    assert records["B03"]["source"].endswith("MSK_DETFOO_B03.jp2")
+    assert validate(tree) == []
+    write_netcdf(tree, tmp_path / "mixed.nc")
+    with open_netcdf(tmp_path / "mixed.nc") as restored:
+        for name in ("time", "detector_index", "view_zenith", "view_azimuth"):
+            assert restored[f"/measurements/r10m/{name}"].attrs == group[name].attrs
+
+
+def test_esa_version_rejects_unpinned_workbook(tmp_path):
+    from spectraccess.core.imagery import read_esa_srf
+    path = tmp_path / "other.xlsx"
+    path.write_bytes(b"another workbook issue")
+    with pytest.raises(ValueError, match="checksum"):
+        read_esa_srf(path, unit="S2B")
+
+
+def test_s2_stage_describes_only_primary_processing(tmp_path):
+    tree = read_s2(safe(tmp_path), bands=["B02"], collection="operational")
+    group = tree["/measurements/r10m"]
+    chain = json.loads(group.attrs["stage"])["processing_chain"]
+    assert [step["kind"] for step in chain] == ["calibration", "harmonisation", "orthorectification"]
+    assert all(step["actor"] == "ESA" for step in chain)
+    assert "per_band_parameters" in json.loads(group.radiance.attrs["conversion"])
+    assumptions = json.loads(group.radiance.attrs["assumptions"])
+    assert assumptions[0]["basis"] == "operator_declared"
+    assert assumptions[1]["basis"] == "documented"
+    assert "s2-products" in assumptions[1]["statement"]

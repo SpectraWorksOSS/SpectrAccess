@@ -128,9 +128,9 @@ def test_s2_los_band_delay_envelope(date):
     assert checked >= 3
 
 
-def esa_workbook(unit="S2B"):
+def esa_workbook(path, unit="S2B"):
     namespace = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
-    with zipfile.ZipFile(HERE / "s2_srf_v4.xlsx") as workbook:
+    with zipfile.ZipFile(path) as workbook:
         # Sheet order is fixed by the pinned v4.0 workbook (Overview, A, B, C).
         sheet = {"S2A": 2, "S2B": 3, "S2C": 4}[unit]
         root = ET.fromstring(workbook.read(f"xl/worksheets/sheet{sheet}.xml"))
@@ -146,10 +146,10 @@ def esa_workbook(unit="S2B"):
 
 
 @pytest.mark.parametrize("date", ["20210507", "20240501"])
-def test_s2_embedded_vs_esa_v4_comparison_record(date):
+def test_s2_embedded_vs_esa_v4_comparison_record(date, esa_srf_path):
     product, _, baseline, _, _, _ = parse_product(HERE / f"{date}_MTD_MSIL1C.xml")
     entries = spectral_responses(product, baseline=baseline, unit="S2B", product_id=date)
-    table = esa_workbook()
+    table = esa_workbook(esa_srf_path)
     observations = {}
     for band, ds in entries.items():
         name = ds.band.item()

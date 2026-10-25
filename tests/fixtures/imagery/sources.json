@@ -291,14 +291,16 @@
     "url": "https://raw.githubusercontent.com/contrailcirrus/pycontrails/47ddd2fa249c2f695e500569e1f5b871d6b412e6/LICENSE",
     "sha256": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
   },
-  "s2_srf_v4.xlsx": {
-    "url": "https://sentiwiki.copernicus.eu/__attachments/a_ece6183b6698587e7ecd9804974bece3d82e39e151aa5aeca9d8fd95e1f1558c/COPE-GSEG-EOPG-TN-15-0007%20-%20Sentinel-2%20Spectral%20Response%20Functions%202024%20-%204.0.xlsx?cb=05a866b9653a4d2bc442df394ea6cc7a",
-    "sha256": "1a9edc27d692a570911a460d589f188da0fc3e27f0b0bd1ad322059c380519b0"
-  },
   "landsat9_C2_ANG.txt": {
     "url": "https://landsateuwest.blob.core.windows.net/landsat-c2/level-2/standard/oli-tirs/2024/037/036/LC09_L2SP_037036_20240523_20240524_02_T1/LC09_L2SP_037036_20240523_20240524_02_T1_ANG.txt",
     "sha256": "478094c2fd8678885525b236cb96c33ef05faf7418d13ba5355231237da3930d",
     "note": "Collection-2 ANG shipped with L2; contains original per-band L1T/L1R geometric model",
     "product_id": "LC09_L2SP_037036_20240523_02_T1"
+  },
+  "vendor/PYCONTRAILS_NOTICE": {
+    "url": "https://raw.githubusercontent.com/contrailcirrus/pycontrails/47ddd2fa249c2f695e500569e1f5b871d6b412e6/NOTICE",
+    "sha256": "f02e283ce0abfbc5f6d416539cd871fc973ade7e2685d277760842148da3f093",
+    "provider_sha256": "7e204f7636226cca43cdff21a9c9fb4ef010fb278ad74abf36aab6e039ec9188",
+    "extraction": "Copyright attribution retained; unrelated CoCiP attribution omitted"
   }
 }

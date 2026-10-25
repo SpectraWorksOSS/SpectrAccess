@@ -131,6 +131,7 @@ def read_imagery(radiance, *, observation=None, bounds=None,
         else:
             rho = describe(xr.full_like(rad, np.nan), basis="unknown", units="1",
                            reason="no solar irradiance spectrum supplied", conversion=json.dumps(conversion))
+        rho.attrs["sun_normalisation"] = "true_rho_without_clip"
         group = measurement_group({
             "radiance": describe(rad, basis="published", source=str(radiance), energy_photon_basis="energy"),
             "toa_reflectance": rho,

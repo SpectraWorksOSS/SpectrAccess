@@ -24,9 +24,14 @@ from .detectors import read_gml_mask
 BANDS = ["B01", "B02", "B03", "B04", "B05", "B06", "B07", "B08", "B8A", "B09", "B10", "B11", "B12"]
 SUN_ASSUMPTION = AssumptionRecord(
     "s2_sun_grid_inversion", "Bilinear interpolation of per-tile 5 km Sun_Angles_Grid; "
-    "sun zenith clipped at 70 degrees for reflectance inversion. ESA per-pixel basis "
+    "ESA per-pixel basis "
     "unverified; radiance inversion is not exact.", AssumptionBasis.OPERATOR_DECLARED,
     "ESA processor per-pixel sun-zenith basis is established and implemented.",
+)
+SUN_CLIP = AssumptionRecord(
+    "s2_sun_zenith_clip", "Provider reflectance processing clips sun zenith at 70 degrees; "
+    "https://sentiwiki.copernicus.eu/web/s2-products", AssumptionBasis.DOCUMENTED,
+    "Provider revises its published sun-zenith convention.",
 )
 TIME_ASSUMPTION = AssumptionRecord(
     "s2_los_time", "L1C pixel LOS inversion through a cubic Hermite provider orbit, "
@@ -281,15 +286,13 @@ def read_imagery(root, *, bands=None, bounds=None, collection=None, external_srf
                                  "processing_baseline": baseline, "collection": collection,
                                  "flight_unit": unit}},
                  {"kind": "orthorectification", "actor": "ESA", "processor": "MSI L1C",
-                  "parameters": {"source": "https://sentiwiki.copernicus.eu/web/s2-processing"}},
-                 {"kind": "quantity_conversion", "actor": "spectraccess", "processor": "reflectance inversion",
-                  "parameters": conversion}]
-        chain.extend(processing_steps(baseline, collection))
+                  "parameters": {"source": "https://sentiwiki.copernicus.eu/web/s2-processing"}}]
+        chain[1:1] = processing_steps(baseline, collection)
         group = measurement_group({
             "toa_reflectance": describe(rho.expand_dims(band=[band]), basis="evaluated_from_provider_model",
                                         source=str(product_path), units="1", sun_normalisation="true_rho_with_70_degree_clip"),
             "radiance": describe(rad.expand_dims(band=[band]), basis="evaluated_from_provider_model",
-                                 source=str(product_path), units="W m-2 sr-1 um-1", assumptions=[SUN_ASSUMPTION],
+                                 source=str(product_path), units="W m-2 sr-1 um-1", assumptions=[SUN_ASSUMPTION, SUN_CLIP],
                                  conversion=json.dumps(conversion)),
         }, primary="toa_reflectance", geometry_kind="map_grid", processing_chain=chain,
            provider_level="L1C", sensor="MSI", flight_unit=unit,
@@ -348,6 +351,8 @@ def read_imagery(root, *, bands=None, bounds=None, collection=None, external_srf
         else:
             for name in ("view_zenith", "view_azimuth", "time"):
                 group[name] = unknown("MTD_TL per-band/detector angle grids missing")
+        if "detector_index" not in group:
+            group["detector_index"] = unknown("native detector mask missing", units="1")
         # Every evaluated descriptor is band-specific before native-grid concat.
         for name in ("view_zenith", "view_azimuth", "time", "detector_index", "time_los_residual"):
             if name in group:
@@ -360,6 +365,19 @@ def read_imagery(root, *, bands=None, bounds=None, collection=None, external_srf
                for p in parts):
             raise ValueError("native bands at the same resolution must share a grid")
         combined[name] = xr.concat(parts, dim="band", data_vars="all", coords="minimal", compat="override", join="outer")
+        # Attribute dictionaries cannot broadcast. Keep complete provenance keyed
+        # by band; only identical attributes also appear at variable scope.
+        for variable in combined[name].data_vars:
+            records = {str(p.band.values[0]): dict(p[variable].attrs) for p in parts
+                       if variable in p and "basis" in p[variable].attrs}
+            if len(records) != len(parts):
+                continue
+            shared = {k: v for k, v in next(iter(records.values())).items()
+                      if all(record.get(k) == v for record in records.values())}
+            shared.setdefault("basis", "unknown")
+            shared.setdefault("uncertainty_status", "unknown")
+            shared.update(provenance_scope="per_band", per_band_metadata=json.dumps(records, sort_keys=True))
+            combined[name][variable].attrs = shared
         chain = []
         for part in parts:
             for step in json.loads(part.attrs["stage"])["processing_chain"]:
