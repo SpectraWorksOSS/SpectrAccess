@@ -1,3 +1,4 @@
+from .imagery import read_imagery
 from .connector import (
     LandsatConnectorError,
     LandsatDownloadError,
@@ -10,6 +11,7 @@ from .connector import (
 )
 
 __all__ = [
+    "read_imagery",
     "LandsatConnectorError",
     "LandsatDownloadError",
     "LandsatEodagConnector",

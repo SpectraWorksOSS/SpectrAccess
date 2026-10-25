@@ -1,0 +1,2 @@
+# Preserve original provider/source bytes so pinned SHA256s work on Windows.
+* -text

@@ -1,3 +1,4 @@
+from .imagery import read_imagery
 from .connector import (
     CDSEConnectorError,
     CDSEDownloadError,
@@ -11,6 +12,7 @@ from .connector import (
 )
 
 __all__ = [
+    "read_imagery",
     "CDSEConnectorError",
     "CDSEDownloadError",
     "CDSEProductError",

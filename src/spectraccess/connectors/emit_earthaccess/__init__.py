@@ -1,3 +1,4 @@
+from .imagery import read_imagery
 from spectraccess.connectors.emit_earthaccess.cube import read_cube, read_product_metadata
 from spectraccess.connectors.emit_earthaccess.connector import (
     EMITConnectorError,
@@ -11,6 +12,7 @@ from spectraccess.connectors.emit_earthaccess.connector import (
 )
 
 __all__ = [
+    "read_imagery",
     "read_cube",
     "read_product_metadata",
     "EMITConnectorError",

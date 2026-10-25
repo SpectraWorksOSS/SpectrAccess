@@ -1,5 +1,9 @@
 # Granule observations and native measurements
 
+The experimental [described-sample imagery API](imagery-form.md) carries native
+quantity layers, band/detector timing, geometry and spectral responses in xarray
+DataTrees. It is additive and does not change the canonical row schema.
+
 Connectors following the granule-plus-Dataset pattern, such as SLSTR,
 expose two complementary outputs. Existing OLCI instead returns pixel rows.
 For the granule pattern, `parse_canonical`

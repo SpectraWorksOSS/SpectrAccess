@@ -256,6 +256,12 @@ class EMITEarthaccessConnector(Connector):
     read_cube = staticmethod(read_cube)
 
     @staticmethod
+    def read_imagery(*args, **kwargs):
+        """Read local L1B RAD+OBS into the experimental imagery form."""
+        from .imagery import read_imagery
+        return read_imagery(*args, **kwargs)
+
+    @staticmethod
     def _check_local_metadata(raw: bytes | str, target: EMITTarget) -> None:
         path = _local_path(raw)
         if path is not None and Path(path).is_file():
