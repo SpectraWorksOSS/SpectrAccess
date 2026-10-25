@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "spectraccess"
-version = "0.6.1"
+version = "0.7.0"
 description = "Python library to find and download Earth observation satellite imagery and cal/val reference data through one interface: Sentinel-2, Sentinel-3 SLSTR, Landsat 8 and 9, VIIRS, MTG FCI, MSG SEVIRI and NASA EMIT products, plus RadCalNet, GSICS, AERONET, CAMS, OLCI water vapour and GNSS data. Preserves provider data and metadata, with labelled provider-model evaluations in the experimental imagery API."
 readme = "README.md"
 requires-python = ">=3.10"
