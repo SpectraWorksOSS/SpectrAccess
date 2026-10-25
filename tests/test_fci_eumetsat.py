@@ -493,3 +493,96 @@ def test_invalid_discovery_inputs(kwargs):
     params.update(kwargs)
     with pytest.raises(ValueError):
         FCIConnector().discover(**params)
+
+
+def test_fetch_reuses_measured_layout_across_cycles(fixture, tmp_path, monkeypatch):
+    http = DataStoreHTTP(fixture, monkeypatch)
+    connector = FCIConnector(credentials=CREDENTIAL)
+    targets = connector.discover(bbox=BBOX, start=START, end=START + timedelta(minutes=20), products=("l1c",))
+    bbox = (-.1, -.05, .1, -.005)
+    first = connector.fetch(targets[0], dest=tmp_path, bbox=bbox, channels=("ir_105", "nir_13"))
+    first_calls = sum(bool(r) for _, r in http.entries_requested)
+    assert first_calls > 0 and first.entry_selection["mode"] == "measured"
+    http.calls.clear()
+    # Reversing provider order must not associate one chunk's grid with another.
+    links = http.search["features"][1]["properties"]["links"]["sip-entries"]
+    links.reverse()
+    second = connector.fetch(targets[1], dest=tmp_path, bbox=bbox, channels=("nir_13", "ir_105"))
+    second_calls = sum(bool(r) for _, r in http.entries_requested)
+    assert second_calls == 0
+    assert set(first.entries) == set(second.entries)
+    assert second.entry_selection["mode"] == "cached"
+    # A changed bbox is evaluated from cached coordinates, not cached selection.
+    http.calls.clear()
+    outside = connector.fetch(targets[1], dest=tmp_path, bbox=(150., -10., 160., 10.), channels=("ir_105", "nir_13"))
+    assert not any("-BODY-" in e for e in outside.entries)
+    assert not any(r for _, r in http.entries_requested)
+    # Independent cold measurement selects the same entries.
+    measured = FCIConnector(credentials=CREDENTIAL).fetch(targets[1], dest=tmp_path, bbox=bbox, channels=("ir_105", "nir_13"))
+    assert set(measured.entries) == set(second.entries)
+    assert connector.read(second, channels=("ir_105",)).attrs["entry_selection"]["mode"] == "cached"
+    assert connector.parse_canonical(second, channels=("ir_105",)).iloc[0].entry_selection["mode"] == "cached"
+    print(f"metadata ranges: first={first_calls}, second={second_calls}")
+
+
+@pytest.mark.parametrize("mismatch", ["version", "processing", "count", "missing_version"])
+def test_fetch_layout_mismatch_is_measured(fixture, tmp_path, monkeypatch, mismatch):
+    from dataclasses import replace
+    from copy import deepcopy
+    http = DataStoreHTTP(fixture, monkeypatch)
+    connector = FCIConnector(credentials=CREDENTIAL)
+    targets = connector.discover(bbox=BBOX, start=START, end=START + timedelta(minutes=20), products=("l1c",))
+    connector.fetch(targets[0], dest=tmp_path, channels=("ir_105",))
+    changed = targets[1]
+    if mismatch == "count":
+        links = http.search["features"][1]["properties"]["links"]["sip-entries"]
+        links[:] = [link for link in links if "0003.nc" not in link["title"]]
+    else:
+        raw = deepcopy(changed.raw)
+        info = raw["download_properties"]["productInformation"]
+        if mismatch == "version":
+            info["productVersion"] = "changed"
+        elif mismatch == "processing":
+            info["processingInformation"]["processorVersion"] = "changed"
+        else:
+            info.pop("productVersion")
+        changed = replace(changed, raw=raw)
+    http.calls.clear()
+    fetched = connector.fetch(changed, dest=tmp_path, channels=("ir_105",))
+    assert any(r for _, r in http.entries_requested)
+    assert fetched.entry_selection["mode"] == "measured"
+    assert fetched.entry_selection["reason"] == ("missing_version_or_chunk_identity" if mismatch == "missing_version" else "version_or_chunk_set_mismatch")
+    measured = FCIConnector(credentials=CREDENTIAL).fetch(changed, dest=tmp_path, channels=("ir_105",))
+    assert set(fetched.entries) == set(measured.entries)
+
+
+def test_fetch_metadata_ranges_are_bounded_and_concurrent(fixture, tmp_path, monkeypatch):
+    import threading
+    import time
+    http = DataStoreHTTP(fixture, monkeypatch)
+    original = http.send
+    lock = threading.Lock()
+    active = peak = 0
+
+    def delayed(request):
+        nonlocal active, peak
+        if not request.headers.get("Range"):
+            return original(request)
+        with lock:
+            active += 1
+            peak = max(peak, active)
+        try:
+            time.sleep(.002)
+            return original(request)
+        finally:
+            with lock:
+                active -= 1
+
+    monkeypatch.setattr(http, "send", delayed)
+    FCIConnector(credentials=CREDENTIAL, metadata_workers=2).fetch(target(), dest=tmp_path, channels=("ir_105",))
+    assert peak == 2
+    for _, byte_range in http.entries_requested:
+        if byte_range:
+            begin, end = map(int, byte_range.removeprefix("bytes=").split("-"))
+            assert end - begin + 1 <= 4096
+    assert all(stream.closed for stream in http.streams)

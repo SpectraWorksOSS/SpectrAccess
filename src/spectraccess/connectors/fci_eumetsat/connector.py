@@ -6,6 +6,8 @@ import itertools
 import os
 import re
 import shutil
+from collections import OrderedDict
+from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -117,6 +119,7 @@ class FCIResult:
     bbox: tuple[float, float, float, float]
     entries: tuple[str, ...]
     local_files: Mapping[str, str] = field(default_factory=dict)
+    entry_selection: Mapping[str, Any] = field(default_factory=dict)
 
 
 def _path(result, entry):
@@ -137,6 +140,13 @@ def _provider_failure(exc, stage, collection=None, *, values=()):
                                     provider_error=FCIProviderError, authorization_error=FCIAuthorizationError)
 
 
+class _RangeNeeded(Exception):
+    """Suspend HDF5 inspection until a missing metadata page is fetched."""
+
+    def __init__(self, stream, block):
+        self.stream, self.block = stream, block
+
+
 class _EntryRange(io.RawIOBase):
     """Seekable HDF5 metadata access using EUMDAC's maintained byte-range API.
 
@@ -144,9 +154,10 @@ class _EntryRange(io.RawIOBase):
     pixel arrays are never accessed while choosing entries. A server that
     ignores Range is rejected rather than downloading a complete repeat cycle.
     """
-    block_size = 65536
+    block_size = 4096
 
-    def __init__(self, product, entry):
+    def __init__(self, product, entry, *, deferred=False):
+        self.deferred = deferred
         self.product, self.entry, self.position = product, entry, 0
         self.blocks = {}
         header = self._range(0, 64)
@@ -193,11 +204,17 @@ class _EntryRange(io.RawIOBase):
             block = self.position // self.block_size
             start = block * self.block_size
             if block not in self.blocks:
-                self.blocks[block] = self._range(start, min(start + self.block_size, self.length))
+                if self.deferred:
+                    raise _RangeNeeded(self, block)
+                self.load_block(block)
             stop = min(end, start + len(self.blocks[block]))
             parts.append(self.blocks[block][self.position - start:stop - start])
             self.position = stop
         return b"".join(parts)
+
+    def load_block(self, block):
+        start = block * self.block_size
+        self.blocks[block] = self._range(start, min(start + self.block_size, self.length))
 
     def readinto(self, buffer):
         data = self.read(len(buffer))
@@ -240,18 +257,92 @@ def _window(x, y, projection, bbox):
     return slice(rows[0], rows[-1] + 1), slice(min(cols), max(cols) + 1)
 
 
-def _entry_intersects(product, entry, bbox, channels):
-    with _EntryRange(product, entry) as stream, h5netcdf.File(stream, "r") as nc:
-        data = nc.groups["data"]
-        projection = dict(data.variables["mtg_geos_projection"].attrs)
+def _entry_geometry(stream, channels):
+    # Retain measured vectors, including variable chunk heights and channel grids.
+    # Never infer chunk rows from their ordinal number.
+    stream.seek(0)
+    with h5py.File(stream, "r") as nc:
+        data = nc["data"]
+        projection = {k: np.asarray(v).item() if np.asarray(v).size == 1 else v
+                      for k, v in data["mtg_geos_projection"].attrs.items()}
+        grids = {}
         for channel in channels:
-            if channel not in data.groups:
-                continue
-            group = data.groups[channel].groups["measured"]
-            rows, cols = _window(_angles(group.variables["x"]), _angles(group.variables["y"]), projection, bbox)
-            if rows.stop and cols.stop:
-                return True
+            if channel in data:
+                group = data[channel]["measured"]
+                grids[channel] = (_angles(group["x"]), _angles(group["y"]))
+        return projection, grids
+
+
+def _geometry_intersects(geometry, bbox):
+    projection, grids = geometry
+    for x, y in grids.values():
+        rows, cols = _window(x, y, projection, bbox)
+        if rows.stop and cols.stop:
+            return True
     return False
+
+
+def _entry_intersects(product, entry, bbox, channels):
+    with _EntryRange(product, entry) as stream:
+        return _geometry_intersects(_entry_geometry(stream, channels), bbox)
+
+
+def _measure_entries(product, entries, channels, token, workers):
+    """Read metadata pages concurrently, without holding HDF5's global lock.
+
+    HDF5 inspection is local and serial. A cache miss unwinds the file handle;
+    the pool fetches one missing page per entry, then inspection resumes from
+    cached pages. This avoids serial network waits inside HDF5's Python lock.
+    Auth context must be propagated explicitly to the transport threads.
+    """
+    def create(entry):
+        with _eumdac_context(token=token):
+            return _EntryRange(product, entry, deferred=True)
+
+    def load(needed):
+        with _eumdac_context(token=token):
+            needed.stream.load_block(needed.block)
+
+    geometry = {}
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        streams = list(pool.map(create, entries))
+        try:
+            pending = list(zip(entries, streams))
+            while pending:
+                missing, remaining = [], []
+                for entry, stream in pending:
+                    try:
+                        geometry[entry] = _entry_geometry(stream, channels)
+                    except _RangeNeeded as needed:
+                        missing.append(needed)
+                        remaining.append((entry, stream))
+                list(pool.map(load, missing))
+                pending = remaining
+        finally:
+            for stream in streams:
+                stream.close()
+    return geometry
+
+
+def _layout_identity(target, entries, channels):
+    info = target.raw.get("download_properties", {}).get("productInformation", {})
+    if not info:
+        info = target.raw.get("properties", {}).get("productInformation", {})
+    version = info.get("productVersion", info.get("version"))
+    processing = info.get("processingInformation", {}).get("processorVersion", info.get("processingVersion"))
+    identities = []
+    for entry in entries:
+        match = _SUFFIX.search(entry)
+        if match is None or "-FDHSI-FD-" not in entry:
+            return None
+        # Platform, product kind, distribution format and processing modes also
+        # partition layouts. Timestamps and repeat-cycle number do not.
+        identities.append((entry.split("-CHK-")[0], entry.split("-BODY-")[1].split("_")[0],
+                           tuple(entry[:match.start()].split("_")[-2:]),
+                           match.groups()[2:5], int(match[7])))
+    if not version or not processing or not identities or len(set(identities)) != len(identities):
+        return None
+    return (target.collection, str(version), str(processing), tuple(sorted(identities)), tuple(sorted(channels)))
 
 
 def _file_info(path):
@@ -316,8 +407,39 @@ class FCIConnector(Connector):
     """EUMDAC discovery and chunk fetch, Satpy values, native-window Dataset."""
     credential_provider = "eumetsat"
 
-    def __init__(self, *, credentials: CredentialSource | None = None):
+    def __init__(self, *, credentials: CredentialSource | None = None, metadata_workers=4):
+        if not isinstance(metadata_workers, int) or metadata_workers < 1:
+            raise ValueError("metadata_workers must be a positive integer")
         self.credentials = credentials
+        self.metadata_workers = metadata_workers
+        self._entry_layouts = OrderedDict()
+
+    def _select_bodies(self, product, target, entries, channels, bbox, token):
+        key = _layout_identity(target, entries, channels)
+        cached = self._entry_layouts.get(key) if key is not None else None
+        reason = None
+        if cached is not None:
+            self._entry_layouts.move_to_end(key)
+            mode = "cached"
+        else:
+            reason = ("missing_version_or_chunk_identity" if key is None else
+                      "version_or_chunk_set_mismatch" if self._entry_layouts else "cold_cache")
+            geometry = _measure_entries(product, entries, channels, token, self.metadata_workers)
+            mode = "measured"
+            if key is not None:
+                # Store by chunk identity rather than provider entry order.
+                ordered = sorted(entries, key=lambda e: int(_SUFFIX.search(e)[7]))
+                self._entry_layouts[key] = tuple(geometry[e] for e in ordered)
+                while len(self._entry_layouts) > 8:
+                    self._entry_layouts.popitem(last=False)
+        if cached is not None:
+            ordered = sorted(entries, key=lambda e: int(_SUFFIX.search(e)[7]))
+            geometry = dict(zip(ordered, cached))
+        selected = {e for e in entries if _geometry_intersects(geometry[e], bbox)}
+        return selected, {"mode": mode, "reason": reason, "body_count": len(entries),
+                          "metadata_workers": self.metadata_workers,
+                          "basis": "measured_provider_coordinates"}
+
 
     def _store(self, credentials=None):
         credential = resolve("eumetsat", credentials if credentials is not None else self.credentials)
@@ -366,19 +488,24 @@ class FCIConnector(Connector):
         import hashlib
         path = path / hashlib.sha256((target.collection + target.product_id).encode()).hexdigest()[:20]
         path.mkdir(parents=True, exist_ok=True)
-        downloaded, local_files = [], {}
+        downloaded, local_files, selection = [], {}, {}
         with _eumdac_context(token=store.token):
             try:
                 product = store.get_product(target.collection, target.product_id)
                 available = tuple(product.entries)
                 l1c = target.collection == COLLECTIONS["l1c"]
                 selected = []
+                bodies = tuple(e for e in available if e.endswith(".nc") and "-BODY-" in e)
+                selected_bodies = set()
+                if l1c:
+                    selected_bodies, selection = self._select_bodies(
+                        product, target, bodies, channels, bbox, store.token)
                 for entry in available:
                     if not entry.endswith(".nc"):
                         continue
                     if not l1c or "-TRAIL-" in entry:
                         selected.append(entry)
-                    elif "-BODY-" in entry and _entry_intersects(product, entry, bbox, channels):
+                    elif entry in selected_bodies:
                         selected.append(entry)
                 if l1c and any("-BODY-" in e for e in selected) and not any("-TRAIL-" in e for e in selected):
                     raise ValueError("FCI repeat cycle has no trailer entry")
@@ -399,7 +526,7 @@ class FCIConnector(Connector):
                     local_files[filename] = local_name
             except Exception as exc:
                 raise _provider_failure(exc, "entry fetch", target.collection, values=_auth_values(token=store.token)) from exc
-        return FCIResult(path, target, datetime.now(timezone.utc), bbox, tuple(downloaded), local_files)
+        return FCIResult(path, target, datetime.now(timezone.utc), bbox, tuple(downloaded), local_files, selection)
 
     def parse(self, result, **kwargs):
         return self.parse_canonical(result, **kwargs)
@@ -411,6 +538,7 @@ class FCIConnector(Connector):
         frame = target_to_canonical(result.target, retrieved_at=result.retrieved_at,
                                     provider_attrs=ds.attrs.get("provider_attrs", {}),
                                     qa=ds.attrs.get("provider_product_qa"))
+        frame["entry_selection"] = [dict(result.entry_selection)]
         if any("radiometric_noise_lut_noise" in name for name in ds):
             frame["unc_definition"] = NOISE_DEFINITION
         return frame
@@ -427,7 +555,7 @@ class FCIConnector(Connector):
                              integration_start=result.target.start.isoformat(),
                              integration_end=result.target.end.isoformat(),
                              fetched_bbox=result.bbox, requested_bbox=bbox, source_entries=result.entries,
-                             provider_coverage=result.target.coverage)
+                             provider_coverage=result.target.coverage, entry_selection=dict(result.entry_selection))
         if result.target.footprint:
             dataset.attrs["footprint_geometry"] = result.target.footprint
         return dataset
