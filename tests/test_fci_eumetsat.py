@@ -548,6 +548,34 @@ def test_fetch_restores_layout_in_fresh_connector_and_measures_mismatch(fixture,
     assert any(r for _, r in http.entries_requested)
 
 
+def test_fetch_incomplete_version_reuses_only_checksum_bound_product(fixture, tmp_path, monkeypatch):
+    from copy import deepcopy
+    from dataclasses import replace
+    http = DataStoreHTTP(fixture, monkeypatch)
+    connector = FCIConnector(credentials=CREDENTIAL)
+    target = connector.discover(bbox=BBOX, start=START, end=START, products=("l1c",))[0]
+    raw = deepcopy(target.raw)
+    info = raw["download_properties"]["productInformation"]
+    info["productVersion"] = "Original"
+    info["processingInformation"].pop("processorVersion")
+    raw["properties"]["md5"] = "synthetic-archive-checksum-a"
+    target = replace(target, raw=raw)
+    first = connector.fetch(target, dest=tmp_path, channels=("ir_105",))
+    restored = FCIConnector(credentials=CREDENTIAL)
+    restored.import_layout_cache(connector.export_layout_cache())
+    http.calls.clear()
+    same = restored.fetch(target, dest=tmp_path, channels=("ir_105",))
+    assert same.entry_selection["mode"] == "cached"
+    assert set(first.entries) == set(same.entries)
+    assert not any(r for _, r in http.entries_requested)
+    raw = deepcopy(raw)
+    raw["properties"]["md5"] = "synthetic-archive-checksum-b"
+    http.calls.clear()
+    changed = restored.fetch(replace(target, raw=raw), dest=tmp_path, channels=("ir_105",))
+    assert changed.entry_selection["mode"] == "measured"
+    assert any(r for _, r in http.entries_requested)
+
+
 @pytest.mark.parametrize("mismatch", ["version", "processing", "count", "missing_version"])
 def test_fetch_layout_mismatch_is_measured(fixture, tmp_path, monkeypatch, mismatch):
     from dataclasses import replace

@@ -342,8 +342,14 @@ def _layout_identity(target, entries, channels):
         identities.append((entry.split("-CHK-")[0], entry.split("-BODY-")[1].split("_")[0],
                            tuple(entry[:match.start()].split("_")[-2:]),
                            match.groups()[2:5], int(match[7])))
-    if not version or not processing or not identities or len(set(identities)) != len(identities):
+    if not identities or len(set(identities)) != len(identities):
         return None
+    if not version or not processing:
+        checksum = target.raw.get("properties", {}).get("md5")
+        # Incomplete processing metadata cannot establish cross-cycle identity.
+        # A published archive checksum can still bind this exact product.
+        return ((target.collection, "exact-product-md5", target.product_id, str(checksum),
+                 tuple(sorted(identities)), tuple(sorted(channels))) if checksum else None)
     return (target.collection, str(version), str(processing), tuple(sorted(identities)), tuple(sorted(channels)))
 
 
