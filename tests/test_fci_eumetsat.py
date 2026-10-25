@@ -525,6 +525,29 @@ def test_fetch_reuses_measured_layout_across_cycles(fixture, tmp_path, monkeypat
     print(f"metadata ranges: first={first_calls}, second={second_calls}")
 
 
+def test_fetch_restores_layout_in_fresh_connector_and_measures_mismatch(fixture, tmp_path, monkeypatch):
+    from copy import deepcopy
+    from dataclasses import replace
+    http = DataStoreHTTP(fixture, monkeypatch)
+    connector = FCIConnector(credentials=CREDENTIAL)
+    targets = connector.discover(bbox=BBOX, start=START, end=START + timedelta(minutes=20), products=("l1c",))
+    first = connector.fetch(targets[0], dest=tmp_path, bbox=BBOX, channels=("ir_105",))
+    data = connector.export_layout_cache()
+    restored = FCIConnector(credentials=CREDENTIAL)
+    restored.import_layout_cache(data)
+    http.calls.clear()
+    warm = restored.fetch(targets[1], dest=tmp_path, bbox=BBOX, channels=("ir_105",))
+    assert warm.entry_selection["mode"] == "cached"
+    assert not any(r for _, r in http.entries_requested)
+    assert set(first.entries) == set(warm.entries)
+    raw = deepcopy(targets[1].raw)
+    raw["download_properties"]["productInformation"]["productVersion"] = "changed"
+    http.calls.clear()
+    mismatch = restored.fetch(replace(targets[1], raw=raw), dest=tmp_path, bbox=BBOX, channels=("ir_105",))
+    assert mismatch.entry_selection["mode"] == "measured"
+    assert any(r for _, r in http.entries_requested)
+
+
 @pytest.mark.parametrize("mismatch", ["version", "processing", "count", "missing_version"])
 def test_fetch_layout_mismatch_is_measured(fixture, tmp_path, monkeypatch, mismatch):
     from dataclasses import replace

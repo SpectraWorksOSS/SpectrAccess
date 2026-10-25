@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import io
+import gzip
+import json
 import itertools
 import os
 import re
@@ -413,6 +415,28 @@ class FCIConnector(Connector):
         self.credentials = credentials
         self.metadata_workers = metadata_workers
         self._entry_layouts = OrderedDict()
+
+    def export_layout_cache(self):
+        """Portable measured coordinates; contains no credentials or pixels."""
+        rows = [[key, [[projection, {channel: [x.tolist(), y.tolist()]
+                  for channel, (x, y) in grids.items()}] for projection, grids in layout]]
+                for key, layout in self._entry_layouts.items()]
+        return gzip.compress(json.dumps({"schema": "fci-entry-layout/1", "layouts": rows}).encode())
+
+    def import_layout_cache(self, data):
+        """Restore layouts; normal version/chunk identity checks still apply."""
+        def frozen(value):
+            return tuple(frozen(v) for v in value) if isinstance(value, list) else value
+        body = json.loads(gzip.decompress(data))
+        if body.get("schema") != "fci-entry-layout/1":
+            raise ValueError("unsupported FCI entry layout cache")
+        layouts = OrderedDict()
+        for key, layout in body["layouts"][-8:]:
+            layouts[frozen(key)] = tuple((projection, {channel: (np.asarray(x), np.asarray(y))
+                for channel, (x, y) in grids.items()}) for projection, grids in layout)
+        self._entry_layouts.update(layouts)
+        while len(self._entry_layouts) > 8:
+            self._entry_layouts.popitem(last=False)
 
     def _select_bodies(self, product, target, entries, channels, bbox, token):
         key = _layout_identity(target, entries, channels)
