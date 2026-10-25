@@ -597,6 +597,7 @@ def test_fetch_layout_mismatch_is_measured(fixture, tmp_path, monkeypatch, misma
             info["processingInformation"]["processorVersion"] = "changed"
         else:
             info.pop("productVersion")
+            raw["properties"].pop("md5", None)
         changed = replace(changed, raw=raw)
     http.calls.clear()
     fetched = connector.fetch(changed, dest=tmp_path, channels=("ir_105",))
