@@ -14,7 +14,8 @@ pip install "spectraccess[imagery]"
 
 Discovery and downloading use the existing connectors and their separate
 `landsat`, `cdse` or `emit` extras. The imagery extra reads local files; it
-does not need archive credentials. EMIT discovery still needs Python 3.12+.
+does not need archive clients or credentials. EMIT discovery still needs
+Python 3.12+; local EMIT L1B RAD+OBS reading supports Python 3.10+.
 
 ```python
 from spectraccess.connectors.sentinel2_cdse import read_imagery
@@ -238,3 +239,7 @@ round-trip tests cover it, but there is no separate Zarr writer API.
 Metadata and synthetic-array checks do not establish real-image reader
 correctness. Native image site boxes still need independent product checks
 before relying on a new reader for quantitative work.
+
+Landsat ANG evaluator tests compare metadata samples against the independent
+USGS C oracle. Comparison with delivered band-4 angle grids is deferred to
+the first real-scene read in the cloud validation phase.

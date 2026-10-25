@@ -3,6 +3,8 @@
 import json
 from pathlib import Path
 import shutil
+import subprocess
+import sys
 
 import numpy as np
 import pytest
@@ -15,6 +17,49 @@ from spectraccess.connectors.sentinel2_cdse.imagery import xml, text
 from spectraccess.connectors.emit_earthaccess.imagery import read_imagery as read_emit
 
 FIXTURES = Path(__file__).parent / "fixtures" / "imagery"
+
+
+def test_local_readers_without_archive_clients(tmp_path):
+    # A fresh interpreter catches eager package imports even when CI installed
+    # the clients. Exercise actual synthetic reads, not only symbol imports.
+    script = '''
+import importlib.abc
+from pathlib import Path
+import runpy
+import sys
+
+class NoArchiveClients(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname.split(".")[0] in {"earthaccess", "eodag", "cdsetool"}:
+            raise ModuleNotFoundError(fullname)
+
+sys.meta_path.insert(0, NoArchiveClients())
+from spectraccess.connectors.landsat_eodag import read_imagery
+from spectraccess.connectors.sentinel2_cdse import read_imagery
+from spectraccess.connectors.emit_earthaccess import read_imagery, EMITEarthaccessConnector
+tests = runpy.run_path(sys.argv[1])
+root = Path(sys.argv[2])
+for name, args in [
+    ("test_landsat_counts_and_coefficient_layers_missing_ang", ()),
+    ("test_s2_quantity_layers_and_sun_assumption", (True,)),
+    ("test_emit_raw_pixels_time_srf_and_unknown_conversion", ()),
+]:
+    directory = root / name
+    directory.mkdir()
+    tests[name](directory, *args)
+try:
+    EMITEarthaccessConnector().discover()
+except ImportError as exc:
+    assert "spectraccess[emit]" in str(exc)
+else:
+    raise AssertionError("discovery must request the optional client")
+print("Three local readers passed; discovery install hint passed")
+'''
+    result = subprocess.run(
+        [sys.executable, "-c", script, str(Path(__file__).resolve()), str(tmp_path)],
+        capture_output=True, text=True,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 def raster(path, values, *, crs="EPSG:32631", origin=(600000, 5700000), resolution=10):

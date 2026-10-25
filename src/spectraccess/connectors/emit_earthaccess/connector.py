@@ -25,13 +25,17 @@ from spectraccess.core.connector import Connector
 from spectraccess.core.credentials import CredentialSource, CredentialSession, provider_error
 from spectraccess.core.schema import Uncertainty, UncertaintyStatus, uncertainty_columns, validate
 
-try:
-    import earthaccess
-except ImportError as exc:  # pragma: no cover - packaging boundary
-    raise ImportError(
-        "EMITEarthaccessConnector requires NASA's maintained earthaccess client. "
-        "Install it with: pip install 'spectraccess[emit]'"
-    ) from exc
+
+def _earthaccess():
+    # Local readers and metadata parsing do not need the archive client.
+    try:
+        import earthaccess
+    except ImportError as exc:
+        raise ImportError(
+            "EMITEarthaccessConnector discovery requires NASA's maintained earthaccess client. "
+            "Install it with: pip install 'spectraccess[emit]' (Python 3.12+)"
+        ) from exc
+    return earthaccess
 
 
 SUPPORTED_COLLECTIONS: Mapping[str, tuple[str, ...]] = {
@@ -168,8 +172,9 @@ class EMITEarthaccessConnector(Connector):
         if granule_name is not None:
             query["granule_name"] = granule_name
 
+        client = _earthaccess()
         try:
-            granules = list(earthaccess.search_data(**query))
+            granules = list(client.search_data(**query))
         except Exception as exc:
             raise EMITProviderError(f"EMIT CMR discovery failed: {exc}") from exc
         targets = [

@@ -12,7 +12,7 @@ from spectraccess.core.credentials import Credential
 
 # earthaccess (the EMIT extra) requires Python >=3.12; the test extra installs
 # it only there, so these tests run on 3.12+ and skip on 3.10/3.11.
-pytest.importorskip("earthaccess")
+earthaccess = pytest.importorskip("earthaccess")
 
 import tomllib  # noqa: E402 - stdlib from 3.11; reached only on 3.12+
 
@@ -113,7 +113,7 @@ def _discover(monkeypatch, granules=None):
         calls.append(kwargs)
         return [_granule()] if granules is None else granules
 
-    monkeypatch.setattr(module.earthaccess, "search_data", fake_search_data)
+    monkeypatch.setattr(earthaccess, "search_data", fake_search_data)
     result = EMITEarthaccessConnector().discover(
         product="EMITL2ARFL",
         bbox=(175.0, -42.0, 177.0, -40.0),
@@ -180,7 +180,7 @@ def test_discover_asks_cmr_for_newest_before_count_truncation(monkeypatch):
             records.reverse()
         return records[: kwargs["count"]]
 
-    monkeypatch.setattr(module.earthaccess, "search_data", live_shaped_search)
+    monkeypatch.setattr(earthaccess, "search_data", live_shaped_search)
     targets = EMITEarthaccessConnector().discover(limit=1)
     assert [target.product_id for target in targets] == ["newer"]
 
@@ -196,7 +196,7 @@ def test_antimeridian_footprint_centroid_stays_at_dateline(monkeypatch):
         {"Longitude": 179.6, "Latitude": 12.0},
         {"Longitude": 179.8, "Latitude": 10.0},
     ]
-    monkeypatch.setattr(module.earthaccess, "search_data", lambda **_kwargs: [granule])
+    monkeypatch.setattr(earthaccess, "search_data", lambda **_kwargs: [granule])
     target = EMITEarthaccessConnector().discover(limit=1)[0]
     canonical = target_to_canonical(target)
     assert canonical["latitude"].eq(11.0).all()
@@ -219,7 +219,7 @@ def test_emit_extra_keeps_python_312_requirement_fail_closed():
 @pytest.mark.parametrize("product", ["EMITL2BMIN", "SENTINEL2", "EMITL2ARFLUNCERT", "EMITL1BOBS"])
 def test_discover_rejects_unreviewed_product_before_provider_call(monkeypatch, product):
     monkeypatch.setattr(
-        module.earthaccess,
+        earthaccess,
         "search_data",
         lambda **_kwargs: pytest.fail("provider should not be called"),
     )
@@ -238,7 +238,7 @@ def test_discover_rejects_unreviewed_version_and_unbounded_limit():
 
 def test_discover_wraps_provider_failure(monkeypatch):
     monkeypatch.setattr(
-        module.earthaccess,
+        earthaccess,
         "search_data",
         lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("CMR unavailable")),
     )
@@ -249,13 +249,13 @@ def test_discover_wraps_provider_failure(monkeypatch):
 def test_discover_fails_closed_on_collection_or_asset_metadata_drift(monkeypatch):
     wrong_collection = _granule()
     wrong_collection["umm"]["CollectionReference"]["ShortName"] = "EMITL1BRAD"
-    monkeypatch.setattr(module.earthaccess, "search_data", lambda **_kwargs: [wrong_collection])
+    monkeypatch.setattr(earthaccess, "search_data", lambda **_kwargs: [wrong_collection])
     with pytest.raises(EMITProductError, match="expected 'EMITL2ARFL'"):
         EMITEarthaccessConnector().discover()
 
     missing_asset = _granule()
     missing_asset["umm"]["RelatedUrls"].pop()
-    monkeypatch.setattr(module.earthaccess, "search_data", lambda **_kwargs: [missing_asset])
+    monkeypatch.setattr(earthaccess, "search_data", lambda **_kwargs: [missing_asset])
     with pytest.raises(EMITProductError, match="assets disagree"):
         EMITEarthaccessConnector().discover()
 
@@ -266,8 +266,8 @@ def test_fetch_downloads_one_selected_asset_and_verifies_sha512(monkeypatch, tmp
     payload = b"small-fixture-not-an-emit-cube"
     checksum = hashlib.sha512(payload).hexdigest()
     target = replace(target, checksums={**target.checksums, PRIMARY: ("SHA-512", checksum)})
-    monkeypatch.setattr(module.earthaccess, "login", lambda **kwargs: pytest.fail("earthaccess login called"))
-    monkeypatch.setattr(module.earthaccess, "download", lambda *args, **kwargs: pytest.fail("earthaccess download called"))
+    monkeypatch.setattr(earthaccess, "login", lambda **kwargs: pytest.fail("earthaccess login called"))
+    monkeypatch.setattr(earthaccess, "download", lambda *args, **kwargs: pytest.fail("earthaccess download called"))
     requests_mock.get(BASE + PRIMARY, content=payload)
     path = EMITEarthaccessConnector(credentials=Credential("token", "fixture-token")).fetch(target, dest=tmp_path)
     assert Path(path).read_bytes() == payload
@@ -292,7 +292,7 @@ def test_fetch_rotation_ignores_earthdata_environment(monkeypatch, tmp_path, req
     monkeypatch.setenv("EARTHDATA_TOKEN", "ignored")
     monkeypatch.setenv("EARTHDATA_USERNAME", "ignored")
     monkeypatch.setenv("EARTHDATA_PASSWORD", "ignored")
-    monkeypatch.setattr(module.earthaccess, "login", lambda **kwargs: pytest.fail("earthaccess login called"))
+    monkeypatch.setattr(earthaccess, "login", lambda **kwargs: pytest.fail("earthaccess login called"))
     secrets = iter(["first", "replacement"])
     connector = EMITEarthaccessConnector(credentials=lambda: Credential("token", next(secrets)))
     requests_mock.get(BASE + PRIMARY, content=b"fixture")
@@ -366,7 +366,7 @@ def test_recorded_cmr_collection_versions_and_fetch(monkeypatch, tmp_path, reque
         calls.append(kwargs)
         return [granule]
 
-    monkeypatch.setattr(module.earthaccess, "search_data", search)
+    monkeypatch.setattr(earthaccess, "search_data", search)
     connector = EMITEarthaccessConnector(credentials=Credential("token", "fixture-token"))
     target = connector.discover(product=product.lower(), version=version, limit=1)[0]
     assert calls[0]["short_name"] == product
@@ -377,8 +377,8 @@ def test_recorded_cmr_collection_versions_and_fetch(monkeypatch, tmp_path, reque
     payload = b"synthetic download through unchanged fetch path"
     checksum = hashlib.sha512(payload).hexdigest()
     target = replace(target, checksums={name: ("SHA-512", checksum) for name in target.assets})
-    monkeypatch.setattr(module.earthaccess, "login", lambda **kwargs: pytest.fail("earthaccess login called"))
-    monkeypatch.setattr(module.earthaccess, "download", lambda *args, **kwargs: pytest.fail("earthaccess download called"))
+    monkeypatch.setattr(earthaccess, "login", lambda **kwargs: pytest.fail("earthaccess login called"))
+    monkeypatch.setattr(earthaccess, "download", lambda *args, **kwargs: pytest.fail("earthaccess download called"))
     for url in target.assets.values():
         requests_mock.get(url, content=payload)
     for role, token in roles.items():
@@ -395,7 +395,7 @@ def test_recorded_cmr_collection_versions_and_fetch(monkeypatch, tmp_path, reque
 def test_mask_defaults_to_published_version_and_rejects_v001(monkeypatch):
     fixture = Path(__file__).resolve().parent / "fixtures" / "emit_cmr" / "EMITL2AMASK_002.json"
     calls = []
-    monkeypatch.setattr(module.earthaccess, "search_data",
+    monkeypatch.setattr(earthaccess, "search_data",
                         lambda **kwargs: calls.append(kwargs) or [json.loads(fixture.read_text())])
     assert EMITEarthaccessConnector().discover(product="EMITL2AMASK")[0].version == "002"
     assert calls[0]["version"] == "002"
@@ -405,6 +405,6 @@ def test_mask_defaults_to_published_version_and_rejects_v001(monkeypatch):
 
 
 def test_discovery_rejects_supported_but_unrequested_version(monkeypatch):
-    monkeypatch.setattr(module.earthaccess, "search_data", lambda **kwargs: [_granule()])
+    monkeypatch.setattr(earthaccess, "search_data", lambda **kwargs: [_granule()])
     with pytest.raises(EMITProductError, match="returned version '001', expected '002'"):
         EMITEarthaccessConnector().discover(version="002")
