@@ -127,7 +127,12 @@ def interpolate_grid(grid, row_m, col_m, *, azimuth=False):
 
 def gps_epoch(value):
     """GPS timestamp to UTC for Sentinel-2 era (2015 onward)."""
-    stamp = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    timestamp = value.strip().replace("Z", "+00:00")
+    # Python 3.10 accepts only three or six fractional digits. Provider
+    # GPS_TIME fields also contain five; padding preserves their value.
+    timestamp = re.sub(r"\.([0-9]{1,5})(?=[+-]|$)",
+                       lambda match: "." + match[1].ljust(6, "0"), timestamp)
+    stamp = datetime.fromisoformat(timestamp)
     stamp = stamp.replace(tzinfo=timezone.utc)
     day = stamp.strftime("%Y-%m-%d")
     leap = 18 if day >= "2017-01-01" else 17 if day >= "2015-07-01" else 16

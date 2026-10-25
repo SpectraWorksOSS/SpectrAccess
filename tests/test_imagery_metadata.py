@@ -14,11 +14,20 @@ from pyproj import Transformer
 from spectraccess.connectors.landsat_eodag.angles import read_odl, evaluate_angles
 from spectraccess.connectors.sentinel2_cdse.imagery import (
     xml, text, parse_product, parse_datation, ephemeris, angle_grids,
-    interpolate_grid, imaging_time, spectral_responses, BANDS,
+    interpolate_grid, imaging_time, spectral_responses, gps_epoch, BANDS,
 )
 from spectraccess.connectors.sentinel2_cdse.processing import processing_steps
 
 HERE = Path(__file__).parent / "fixtures" / "imagery"
+
+
+@pytest.mark.parametrize("suffix", ["", "Z", "+00:00"])
+def test_s2_gps_fractional_seconds(suffix):
+    # Same instant across fractional precision, including Python 3.10.
+    expected = gps_epoch("2024-05-01T10:36:55.531130" + suffix)
+    assert gps_epoch("2024-05-01T10:36:55.53113" + suffix) == expected
+    assert gps_epoch("2024-05-01T10:36:55" + suffix) == pytest.approx(
+        expected - .53113, abs=1e-6, rel=0)
 
 
 def test_pinned_fixture_hashes():
