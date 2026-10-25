@@ -156,10 +156,15 @@ def test_spike_real_satpy(fixture):
     mod._close_l1(clipped)
 
 
-def test_native_values_time_flags_noise_and_dimensions(fixture):
+@pytest.mark.parametrize('reverse_entries', [False, True])
+def test_native_values_time_flags_noise_and_dimensions(fixture, reverse_entries):
+    native = result(fixture)
+    if reverse_entries:
+        native = result(fixture, names=native.entries[::-1])
     with mod.satpy.config.set({"readers.clip_negative_radiances": True}):
-        ds = FCIConnector().read(result(fixture), channels=CHANNELS)
+        ds = FCIConnector().read(native, channels=CHANNELS)
     assert ds.ir_105.shape == (8, 4)
+    assert np.all(np.diff(ds.y_ir_105) > 0)
     assert ds.nir_13.shape == (16, 8)
     assert ds.ir_105.values[0, 0] == -5
     assert np.isnan(ds.ir_105.values[3, 0])

@@ -702,7 +702,7 @@ def _read_l1(result, bbox, channels):
     output = xr.Dataset()
     for channel, chunks in pieces.items():
         if chunks:
-            merged = xr.concat(chunks, dim=f"y_{channel}", join="exact", combine_attrs="drop_conflicts")
+            merged = xr.concat(chunks, dim=f"y_{channel}", join="exact", combine_attrs="drop_conflicts").sortby(f"y_{channel}")
             # Concatenation contains only existing segment rows; gaps are never padded.
             if len(np.unique(merged[f"y_{channel}"])) != merged.sizes[f"y_{channel}"]:
                 raise ValueError("overlapping FCI body rows in repeat cycle")
