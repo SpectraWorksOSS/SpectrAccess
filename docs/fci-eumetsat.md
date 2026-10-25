@@ -85,13 +85,36 @@ No rectangular query bbox is presented as the provider footprint.
 ## Chunk downloads and native grids
 
 EUMDAC supplies `AccessToken`, `DataStore.get_collection().search()`,
-`Product.entries` and `Product.open(entry=...)`. L1c fetch inspects HDF5
-metadata and coordinate vectors with EUMDAC byte-range requests across body
-entries, then downloads the complete entries containing requested-channel
-pixel centres inside the bbox, plus the trailer. Chunk heights can vary;
-selection uses their published scan coordinates. Pixel arrays in other body
-entries are not decoded for selection. A server that does not honor byte ranges
-raises an error. This transport behavior still needs a credentialed live run.
+`Product.entries` and `Product.open(entry=...)`. On a cold L1c layout, fetch
+reads the provider's HDF5 projection and requested-channel x/y coordinate
+vectors across BODY entries. It downloads complete entries containing
+requested-channel pixel centres inside the bbox, plus the trailer. Chunk
+heights can vary; selection uses measured coordinates rather than a table
+of inferred chunk rows. Pixel arrays are not decoded for selection.
+
+Reuse the same `FCIConnector` for successive repeat cycles. It keeps up to eight
+measured layouts in memory, partitioned by collection, published product and
+processor versions, platform/product/encoding/processing modes, exact BODY
+chunk-number set (including count), and requested channel set. A matching later
+cycle evaluates its bbox against those grids with **zero metadata range calls**;
+whole-entry downloads and catalogue requests still occur. Different bboxes
+reuse the coordinates. Changing channels measures a separate layout. Missing
+version/identity metadata or a changed version/chunk set triggers measured
+selection for that product. No cache survives a connector/process restart.
+
+`FCIResult.entry_selection`, Dataset attrs and canonical `entry_selection`
+record `mode` (`measured` or `cached`), fallback `reason`, BODY count, worker
+limit and coordinate basis. Reuse assumes provider grids remain stable within
+that versioned identity. The synthetic fixtures prove the cache mechanism;
+real-header stability and the 25-cycle/30-minute cloud budget still require
+RefCal's cloud-side proof. No hardcoded PUG chunk layout is used.
+
+Cold measurements fetch only demanded 4 KiB metadata pages (plus 64-byte
+superblocks), using a bounded pool: `FCIConnector(metadata_workers=4)` by
+default. Local HDF5 inspection pauses on a missing page; network reads run
+outside HDF5's global lock so separate BODY entries can progress concurrently.
+A server that ignores byte ranges raises an error. This transport behavior
+still needs a credentialed cloud run.
 L2 products are single NetCDF entries and are downloaded before local clipping.
 Short cache filenames avoid Windows NetCDF path limits; result metadata retains
 the original provider entry names.
