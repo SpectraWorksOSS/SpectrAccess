@@ -553,6 +553,58 @@ def test_fetch_restores_layout_in_fresh_connector_and_measures_mismatch(fixture,
     assert any(r for _, r in http.entries_requested)
 
 
+def test_fetch_legacy_channel_cache_reuses_native_grids(fixture, tmp_path, monkeypatch):
+    import gzip
+    import h5py
+    http = DataStoreHTTP(fixture, monkeypatch)
+    connector = FCIConnector(credentials=CREDENTIAL)
+    targets = connector.discover(bbox=BBOX, start=START, end=START + timedelta(minutes=20), products=("l1c",))
+    old_channels = ("ir_105", "ir_123", "vis_06")
+    entries = sorted((p.name for p in fixture.glob("*-BODY-*.nc")), key=lambda e: int(mod._SUFFIX.search(e)[7]))
+    # Construct the original /1 serialization from actual per-channel vectors.
+    key = (*mod._layout_identity(targets[0], entries, old_channels)[:-1], tuple(sorted(old_channels)))
+    layout = []
+    for entry in entries:
+        with h5py.File(fixture / entry) as nc:
+            projection = dict(GENERATOR["PROJECTION"])
+            grids = {c: [mod._angles(nc[f"data/{c}/measured/{axis}"]).tolist() for axis in ("x", "y")]
+                     for c in old_channels}
+            layout.append([projection, grids])
+    connector.import_layout_cache(gzip.compress(json.dumps({"schema": "fci-entry-layout/1", "layouts": [[key, layout]]}).encode()))
+    http.calls.clear()
+    channels = (*old_channels, "ir_87")
+    warm = connector.fetch(targets[1], dest=tmp_path, channels=channels)
+    assert warm.entry_selection["mode"] == "cached"
+    assert not any(r for _, r in http.entries_requested)
+    cold = FCIConnector(credentials=CREDENTIAL).fetch(targets[1], dest=tmp_path, channels=channels)
+    assert set(warm.entries) == set(cold.entries)
+    # Native grids also survive another export/import, without channel keys.
+    restored = FCIConnector(credentials=CREDENTIAL)
+    restored.import_layout_cache(connector.export_layout_cache())
+    http.calls.clear()
+    restored.fetch(targets[1], dest=tmp_path, channels=("ir_97", "nir_13"))
+    assert not any(r for _, r in http.entries_requested)
+
+
+def test_fetch_measures_only_missing_native_grid(fixture, tmp_path, monkeypatch):
+    http = DataStoreHTTP(fixture, monkeypatch)
+    connector = FCIConnector(credentials=CREDENTIAL)
+    connector.fetch(target(), dest=tmp_path, channels=("ir_105",))
+    original = mod._entry_geometry
+    measured_channels = []
+
+    def inspect(stream, channels):
+        measured_channels.append(channels)
+        return original(stream, channels)
+
+    monkeypatch.setattr(mod, "_entry_geometry", inspect)
+    connector.fetch(target(), dest=tmp_path, channels=("ir_87", "ir_123", "vis_06", "nir_13"))
+    assert measured_channels and set(measured_channels) == {("vis_06",)}
+    http.calls.clear()
+    connector.fetch(target(), dest=tmp_path, channels=("ir_97", "nir_16"))
+    assert not any(r for _, r in http.entries_requested)
+
+
 def test_fetch_incomplete_version_reuses_only_checksum_bound_product(fixture, tmp_path, monkeypatch):
     from copy import deepcopy
     from dataclasses import replace
@@ -589,6 +641,9 @@ def test_fetch_layout_mismatch_is_measured(fixture, tmp_path, monkeypatch, misma
     connector = FCIConnector(credentials=CREDENTIAL)
     targets = connector.discover(bbox=BBOX, start=START, end=START + timedelta(minutes=20), products=("l1c",))
     connector.fetch(targets[0], dest=tmp_path, channels=("ir_105",))
+    restored = FCIConnector(credentials=CREDENTIAL)
+    restored.import_layout_cache(connector.export_layout_cache())
+    connector = restored
     changed = targets[1]
     if mismatch == "count":
         links = http.search["features"][1]["properties"]["links"]["sip-entries"]
@@ -636,10 +691,14 @@ def test_fetch_metadata_ranges_are_bounded_and_concurrent(fixture, tmp_path, mon
                 active -= 1
 
     monkeypatch.setattr(http, "send", delayed)
-    FCIConnector(credentials=CREDENTIAL, metadata_workers=2).fetch(target(), dest=tmp_path, channels=("ir_105",))
+    FCIConnector(credentials=CREDENTIAL, metadata_workers=2).fetch(
+        target(), dest=tmp_path, channels=("ir_87", "ir_105", "ir_123", "vis_06"))
     assert peak == 2
+    ranges = [(entry, r) for entry, r in http.entries_requested if r]
+    assert len(ranges) == len(set(ranges))
+    assert mod._EntryRange.block_size == 65536
     for _, byte_range in http.entries_requested:
         if byte_range:
             begin, end = map(int, byte_range.removeprefix("bytes=").split("-"))
-            assert end - begin + 1 <= 4096
+            assert end - begin + 1 <= 65536
     assert all(stream.closed for stream in http.streams)

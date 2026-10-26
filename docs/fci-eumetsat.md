@@ -86,7 +86,7 @@ No rectangular query bbox is presented as the provider footprint.
 
 EUMDAC supplies `AccessToken`, `DataStore.get_collection().search()`,
 `Product.entries` and `Product.open(entry=...)`. On a cold L1c layout, fetch
-reads the provider's HDF5 projection and requested-channel x/y coordinate
+reads the provider's HDF5 projection and one representative channel's x/y coordinate
 vectors across BODY entries. It downloads complete entries containing
 requested-channel pixel centres inside the bbox, plus the trailer. Chunk
 heights can vary; selection uses measured coordinates rather than a table
@@ -95,12 +95,21 @@ of inferred chunk rows. Pixel arrays are not decoded for selection.
 Reuse the same `FCIConnector` for successive repeat cycles. It keeps up to eight
 measured layouts in memory, partitioned by collection, published product and
 processor versions, platform/product/encoding/processing modes, exact BODY
-chunk-number set (including count), and requested channel set. A matching later
+chunk-number set (including count), and native grid set. FDHSI visible and
+near-infrared channels share the 1 km grid; thermal channels share the 2 km
+grid. Each requested grid is measured once per BODY entry. A matching later
 cycle evaluates its bbox against those grids with **zero metadata range calls**;
 whole-entry downloads and catalogue requests still occur. Different bboxes
-reuse the coordinates. Changing channels measures a separate layout. Missing
-version/identity metadata or a changed version/chunk set triggers measured
-selection for that product. No cache survives a connector/process restart.
+reuse the coordinates. Changing channels on a known grid needs no measurement;
+adding a new grid measures only that grid. A changed version/chunk set triggers
+measured selection. Without complete version/processor metadata, reuse requires
+the same product ID and published MD5 checksum; layouts cannot transfer across
+repeat cycles in that case. Missing identity metadata prevents reuse.
+
+`export_layout_cache()` and `import_layout_cache()` persist measured coordinates
+across connector/process restarts as compressed `fci-entry-layout/1` data, with
+the same identity guards. Imports accept earlier channel-name keys and reuse
+their vectors for any channel on the measured native grid.
 
 `FCIResult.entry_selection`, Dataset attrs and canonical `entry_selection`
 record `mode` (`measured` or `cached`), fallback `reason`, BODY count, worker
@@ -109,7 +118,7 @@ that versioned identity. The synthetic fixtures prove the cache mechanism;
 real-header stability and the 25-cycle/30-minute cloud budget still require
 RefCal's cloud-side proof. No hardcoded PUG chunk layout is used.
 
-Cold measurements fetch only demanded 4 KiB metadata pages (plus 64-byte
+Cold measurements fetch only demanded 64 KiB metadata pages (plus 64-byte
 superblocks), using a bounded pool: `FCIConnector(metadata_workers=4)` by
 default. Local HDF5 inspection pauses on a missing page; network reads run
 outside HDF5's global lock so separate BODY entries can progress concurrently.

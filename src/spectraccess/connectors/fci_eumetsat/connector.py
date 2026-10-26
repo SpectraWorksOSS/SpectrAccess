@@ -156,7 +156,7 @@ class _EntryRange(io.RawIOBase):
     pixel arrays are never accessed while choosing entries. A server that
     ignores Range is rejected rather than downloading a complete repeat cycle.
     """
-    block_size = 4096
+    block_size = 65536
 
     def __init__(self, product, entry, *, deferred=False):
         self.deferred = deferred
@@ -259,6 +259,11 @@ def _window(x, y, projection, bbox):
     return slice(rows[0], rows[-1] + 1), slice(min(cols), max(cols) + 1)
 
 
+def _native_grid(channel):
+    # FDHSI normal-resolution channels share scan vectors within each grid.
+    return "fdhsi-1km" if channel.startswith(("vis_", "nir_")) else "fdhsi-2km"
+
+
 def _entry_geometry(stream, channels):
     # Retain measured vectors, including variable chunk heights and channel grids.
     # Never infer chunk rows from their ordinal number.
@@ -269,9 +274,10 @@ def _entry_geometry(stream, channels):
                       for k, v in data["mtg_geos_projection"].attrs.items()}
         grids = {}
         for channel in channels:
-            if channel in data:
+            grid = _native_grid(channel)
+            if grid not in grids and channel in data:
                 group = data[channel]["measured"]
-                grids[channel] = (_angles(group["x"]), _angles(group["y"]))
+                grids[grid] = (_angles(group["x"]), _angles(group["y"]))
         return projection, grids
 
 
@@ -327,6 +333,7 @@ def _measure_entries(product, entries, channels, token, workers):
 
 
 def _layout_identity(target, entries, channels):
+    grids = tuple(sorted({_native_grid(channel) for channel in channels}))
     info = target.raw.get("download_properties", {}).get("productInformation", {})
     if not info:
         info = target.raw.get("properties", {}).get("productInformation", {})
@@ -349,8 +356,8 @@ def _layout_identity(target, entries, channels):
         # Incomplete processing metadata cannot establish cross-cycle identity.
         # A published archive checksum can still bind this exact product.
         return ((target.collection, "exact-product-md5", target.product_id, str(checksum),
-                 tuple(sorted(identities)), tuple(sorted(channels))) if checksum else None)
-    return (target.collection, str(version), str(processing), tuple(sorted(identities)), tuple(sorted(channels)))
+                 tuple(sorted(identities)), grids) if checksum else None)
+    return (target.collection, str(version), str(processing), tuple(sorted(identities)), grids)
 
 
 def _file_info(path):
@@ -438,7 +445,12 @@ class FCIConnector(Connector):
             raise ValueError("unsupported FCI entry layout cache")
         layouts = OrderedDict()
         for key, layout in body["layouts"][-8:]:
-            layouts[frozen(key)] = tuple((projection, {channel: (np.asarray(x), np.asarray(y))
+            # Schema /1 originally stored channel names in both key and vectors.
+            # Normalize only that component, preserving all identity guards.
+            def grid_name(name):
+                return _native_grid(name) if name in CHANNELS else name
+            key = (*frozen(key[:-1]), tuple(sorted({grid_name(c) for c in key[-1]})))
+            layouts[key] = tuple((projection, {grid_name(channel): (np.asarray(x), np.asarray(y))
                 for channel, (x, y) in grids.items()}) for projection, grids in layout)
         self._entry_layouts.update(layouts)
         while len(self._entry_layouts) > 8:
@@ -446,25 +458,35 @@ class FCIConnector(Connector):
 
     def _select_bodies(self, product, target, entries, channels, bbox, token):
         key = _layout_identity(target, entries, channels)
-        cached = self._entry_layouts.get(key) if key is not None else None
+        needed = {_native_grid(c) for c in channels}
+        ordered = sorted(entries, key=lambda e: int(_SUFFIX.search(e)[7])) if key is not None else entries
+        geometry = {}
+        if key is not None:
+            for prior_key, layout in self._entry_layouts.items():
+                if prior_key[:-1] == key[:-1]:
+                    for entry, (projection, grids) in zip(ordered, layout):
+                        geometry.setdefault(entry, (projection, {}))[1].update(
+                            {g: xy for g, xy in grids.items() if g in needed})
+        missing = needed - set.intersection(*(set(g) for _, g in geometry.values())) if geometry else needed
         reason = None
-        if cached is not None:
-            self._entry_layouts.move_to_end(key)
+        if not missing:
             mode = "cached"
         else:
             reason = ("missing_version_or_chunk_identity" if key is None else
                       "version_or_chunk_set_mismatch" if self._entry_layouts else "cold_cache")
-            geometry = _measure_entries(product, entries, channels, token, self.metadata_workers)
+            representatives = {}
+            for channel in channels:
+                if _native_grid(channel) in missing:
+                    representatives.setdefault(_native_grid(channel), channel)
+            measured = _measure_entries(product, entries, tuple(representatives.values()), token, self.metadata_workers)
+            for entry, (projection, grids) in measured.items():
+                geometry.setdefault(entry, (projection, {}))[1].update(grids)
             mode = "measured"
-            if key is not None:
-                # Store by chunk identity rather than provider entry order.
-                ordered = sorted(entries, key=lambda e: int(_SUFFIX.search(e)[7]))
-                self._entry_layouts[key] = tuple(geometry[e] for e in ordered)
-                while len(self._entry_layouts) > 8:
-                    self._entry_layouts.popitem(last=False)
-        if cached is not None:
-            ordered = sorted(entries, key=lambda e: int(_SUFFIX.search(e)[7]))
-            geometry = dict(zip(ordered, cached))
+        if key is not None:
+            self._entry_layouts[key] = tuple(geometry[e] for e in ordered)
+            self._entry_layouts.move_to_end(key)
+            while len(self._entry_layouts) > 8:
+                self._entry_layouts.popitem(last=False)
         selected = {e for e in entries if _geometry_intersects(geometry[e], bbox)}
         return selected, {"mode": mode, "reason": reason, "body_count": len(entries),
                           "metadata_workers": self.metadata_workers,
