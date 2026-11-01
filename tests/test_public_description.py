@@ -21,6 +21,7 @@ PUBLIC_NAME = {
     "emit_earthaccess": "EMIT",
     "fci_eumetsat": "FCI",
     "gsics": "GSICS",
+    "iasi_eumetsat": None,  # Native fixture verified; live product proof pending.
     "landsat_eodag": "Landsat",
     "modis_viirs_cal": None,
     "ngl_gnss": "GNSS",

@@ -62,6 +62,10 @@ Changelog = "https://github.com/SpectraWorksOSS/SpectrAccess/blob/main/CHANGELOG
 "EO-Atlas" = "https://eo-atlas.org/"
 
 [project.optional-dependencies]
+iasi = [
+  "metoppy==0.2.0",
+  "eumdac>=3.1,<4",
+]
 imagery = [
   "dask[array]>=2024.1",
   "xarray>=2024.10",
