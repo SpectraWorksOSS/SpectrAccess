@@ -96,3 +96,19 @@ reader test skips; a skip is not reader proof. A synthetic fixture does not
 establish live product compatibility. Validate discover, fetch and read on a
 real product in the target Linux image before using the spectra as scientific
 evidence.
+
+## Verification recorded on 2026-11-01
+
+Connector commit `75a137a06964544c662fc377862ffd0d64eefb5c` passed
+cloud-side discovery, download and native reading of a measured Metop-C
+product: 340 FOVs read, 338 retained by the downstream caller's quality
+selection. A subsequent 24-product, January-December 2023 ensemble supplied
+4071 fit and 4070 product-disjoint holdout FOVs for a SEVIRI-to-ABI spectral
+transfer. These are dated application results, not a claim that every product
+version or runtime has been validated. No measured product is redistributed
+with this library. Transfer fitting and detector scoring belong to the caller.
+
+CI separately installs the IASI extra, initializes Julia, then runs the
+synthetic native entrance tests offline on Python 3.12. This verifies the
+adapter and scaling without provider credentials or whole-orbit downloads.
+The reader remains optional for the ordinary Python compatibility matrix.
