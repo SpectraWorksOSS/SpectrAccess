@@ -115,18 +115,73 @@ their vectors for any channel on the measured native grid.
 record `mode` (`measured` or `cached`), fallback `reason`, BODY count, worker
 limit and coordinate basis. Reuse assumes provider grids remain stable within
 that versioned identity. The synthetic fixtures prove the cache mechanism;
-real-header stability and the 25-cycle/30-minute cloud budget still require
-RefCal's cloud-side proof. No hardcoded PUG chunk layout is used.
+The latest branch still needs a timed cloud selection comparison and the
+25-cycle/30-minute cloud budget proof described below. No hardcoded PUG chunk
+layout is used.
 
 Cold measurements fetch only demanded 64 KiB metadata pages (plus 64-byte
 superblocks), using a bounded pool: `FCIConnector(metadata_workers=4)` by
 default. Local HDF5 inspection pauses on a missing page; network reads run
 outside HDF5's global lock so separate BODY entries can progress concurrently.
 A server that ignores byte ranges raises an error. This transport behavior
-still needs a credentialed cloud run.
+was exercised in the earlier cloud runs below; latest-head timing remains pending.
 L2 products are single NetCDF entries and are downloaded before local clipping.
 Short cache filenames avoid Windows NetCDF path limits; result metadata retains
 the original provider entry names.
+
+### Retained cloud evidence and pending timing probe
+
+Task `t_80861532` records the serial baseline from operator run `4266c3e9`:
+393 range calls over 21 BODY entries took 928 seconds before a body read.
+The validation register's terminal account reports 733 completed ranges over
+38 entries, 1716.274 aggregate request seconds, then the 1800-second timeout.
+These are different observation points, not a completed per-cycle benchmark.
+
+The 2026-10-25 validation-register entry "FCI cold-cache, fresh warm-cache and
+fresh-order journal reuse measured" covers connector `dedc906`. Provider run
+`1d47cc06-cfc5-4b56-9602-6cf939b9c025` completed in 1333 seconds: cold fetch
+1066.961 seconds, next in-process warm fetch 87.219 seconds. Fresh-process run
+`35db4925-e312-4015-a7ce-5452ac4be7d1` restored the layout, completed in 120
+seconds and fetched in 64.302 seconds; the register records zero metadata ranges.
+Logs and the nine successful bounded-run records are retained under
+`spectraworks/evidence/geo-handoff-runs-1/fci-chunked-proof` in the Drive artifact
+tree. Fetch includes entry downloads; these figures do not isolate selection
+wall time or prove the latest checksum/grid-reuse changes.
+
+Pending probe, arranged through the operator API by the caller:
+
+1. Pin two cloud images with identical dependencies/resources: the serial
+   connector at `68a0c5b^`, and the exact candidate branch SHA. Retain both SHAs
+   and image digests. Freeze an input manifest from the original FCI collection
+   `EO:EUM:DAT:0662`: exact product IDs/checksums, BODY lists, bbox and channel
+   set. Use the same products and inputs in both arms, including at least two
+   consecutive version-compatible cycles. Run arms separately with a hard
+   1800-second job limit; a timed-out arm is censored, never a passing result.
+2. Time only the serial `_entry_intersects` loop or candidate `_select_bodies`
+   using a monotonic wall clock. Separately record catalogue/entry listing,
+   layout import/export, fetch, native read and durable checkpoint times.
+   Count range requests/bytes, aggregate request seconds and peak concurrent
+   requests; never substitute aggregate request seconds for wall time.
+3. Measure candidate cold selection with an empty layout cache and four workers,
+   then next-cycle in-process reuse. Export the measured layout and import it
+   in a fresh cloud process for the same next cycle. Repeat with additional
+   channels on the same native grids, and with a changed bbox. Keep provider
+   pixels/frame journals out of these selection-only measurements. Separately
+   exercise missing-version/checksum fallback: exact-product reuse succeeds;
+   changed checksum or absent identity causes measurement.
+4. Require identical selected BODY sets to independent serial selection for
+   every manifest case; warm compatible and restored selection must issue zero
+   metadata ranges, and cold concurrency must stay at or below four. Report
+   per-cycle before/after seconds and ratios, including fallback costs.
+5. Separately run the intended 25-cycle saved unit with fresh frame checkpoints
+   and output namespace, so journal reuse cannot bypass fetch/read/save. Require
+   every expected frame durably saved and total unit wall time below 1800
+   seconds. Record cold versus restored-layout starting state. Faster selection
+   alone does not prove this end-to-end bound. Retain logs and machine-readable
+   measurements and append the result to the validation register.
+
+This document specifies work; it does not launch cloud jobs or establish a
+current-head timing result.
 
 `read` returns an xarray Dataset. L1c channels retain separate `y_<channel>`
 and `x_<channel>` dimensions, including separate 1 km VNIR and 2 km IR
