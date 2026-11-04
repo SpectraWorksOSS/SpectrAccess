@@ -134,6 +134,12 @@ class LandsatEodagConnector(Connector):
 
     credential_provider = "usgs"
 
+    @staticmethod
+    def read_imagery(*args, **kwargs):
+        """Read local OLI L1 files into the experimental imagery form."""
+        from .imagery import read_imagery
+        return read_imagery(*args, **kwargs)
+
     def __init__(
         self,
         *,

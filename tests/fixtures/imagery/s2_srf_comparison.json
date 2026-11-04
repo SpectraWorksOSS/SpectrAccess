@@ -1,0 +1,110 @@
+{
+  "03.00": {
+    "B01": {
+      "equal_at_1e-6": true,
+      "max_absolute_difference": 0.0
+    },
+    "B02": {
+      "equal_at_1e-6": true,
+      "max_absolute_difference": 0.0
+    },
+    "B03": {
+      "equal_at_1e-6": true,
+      "max_absolute_difference": 0.0
+    },
+    "B04": {
+      "equal_at_1e-6": true,
+      "max_absolute_difference": 0.0
+    },
+    "B05": {
+      "equal_at_1e-6": true,
+      "max_absolute_difference": 0.0
+    },
+    "B06": {
+      "equal_at_1e-6": true,
+      "max_absolute_difference": 0.0
+    },
+    "B07": {
+      "equal_at_1e-6": true,
+      "max_absolute_difference": 0.0
+    },
+    "B08": {
+      "equal_at_1e-6": true,
+      "max_absolute_difference": 0.0
+    },
+    "B8A": {
+      "equal_at_1e-6": true,
+      "max_absolute_difference": 0.0
+    },
+    "B09": {
+      "equal_at_1e-6": true,
+      "max_absolute_difference": 0.0
+    },
+    "B10": {
+      "equal_at_1e-6": true,
+      "max_absolute_difference": 0.0
+    },
+    "B11": {
+      "equal_at_1e-6": true,
+      "max_absolute_difference": 0.0
+    },
+    "B12": {
+      "equal_at_1e-6": true,
+      "max_absolute_difference": 0.0
+    }
+  },
+  "05.10": {
+    "B01": {
+      "equal_at_1e-6": true,
+      "max_absolute_difference": 0.0
+    },
+    "B02": {
+      "equal_at_1e-6": true,
+      "max_absolute_difference": 0.0
+    },
+    "B03": {
+      "equal_at_1e-6": true,
+      "max_absolute_difference": 0.0
+    },
+    "B04": {
+      "equal_at_1e-6": true,
+      "max_absolute_difference": 0.0
+    },
+    "B05": {
+      "equal_at_1e-6": true,
+      "max_absolute_difference": 0.0
+    },
+    "B06": {
+      "equal_at_1e-6": true,
+      "max_absolute_difference": 0.0
+    },
+    "B07": {
+      "equal_at_1e-6": true,
+      "max_absolute_difference": 0.0
+    },
+    "B08": {
+      "equal_at_1e-6": true,
+      "max_absolute_difference": 0.0
+    },
+    "B8A": {
+      "equal_at_1e-6": true,
+      "max_absolute_difference": 0.0
+    },
+    "B09": {
+      "equal_at_1e-6": true,
+      "max_absolute_difference": 0.0
+    },
+    "B10": {
+      "equal_at_1e-6": true,
+      "max_absolute_difference": 0.0
+    },
+    "B11": {
+      "equal_at_1e-6": true,
+      "max_absolute_difference": 0.0
+    },
+    "B12": {
+      "equal_at_1e-6": true,
+      "max_absolute_difference": 0.0
+    }
+  }
+}

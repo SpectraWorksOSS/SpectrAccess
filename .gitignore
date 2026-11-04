@@ -16,3 +16,6 @@ env/
 .env
 .spectraccess_cache/
 .tmp/
+
+# Provider documents fetched locally, never redistributed.
+tests/fixtures/imagery/.cache/

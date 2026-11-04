@@ -160,6 +160,12 @@ class Sentinel2CDSEConnector(Connector):
 
     credential_provider = "cdse"
 
+    @staticmethod
+    def read_imagery(*args, **kwargs):
+        """Read local MSI L1C SAFE files into the experimental imagery form."""
+        from .imagery import read_imagery
+        return read_imagery(*args, **kwargs)
+
     def __init__(self, *, max_attempts: int = 3, credentials: CredentialSource | None = None) -> None:
         if max_attempts < 1:
             raise ValueError("max_attempts must be >= 1")
