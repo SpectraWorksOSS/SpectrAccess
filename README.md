@@ -4,7 +4,7 @@
 
 spectrAccess is an open-source Python library that finds and downloads Earth observation satellite imagery and the reference data used to calibrate and validate it, through one interface. It fetches from the agencies and networks that publish the data, or their public archives:
 
-- **Satellite imagery:** Sentinel-2 MSI L1C and Sentinel-3 SLSTR L1 (Copernicus Data Space Ecosystem), Landsat 8 and 9 Collection 2 L1TP (USGS), VIIRS L1B (NASA Earthdata), MTG FCI L1c and MSG SEVIRI Level 1.5 (EUMETSAT), and NASA EMIT hyperspectral L1B radiance and L2A surface reflectance.
+- **Satellite imagery:** Sentinel-2 MSI L1C and Sentinel-3 SLSTR L1 (Copernicus Data Space Ecosystem), Landsat 8 and 9 Collection 2 L1TP (USGS), VIIRS L1B (NASA Earthdata), MTG FCI L1c, MSG SEVIRI Level 1.5 and Metop IASI L1C spectra (EUMETSAT), and NASA EMIT hyperspectral L1B radiance and L2A surface reflectance.
 - **Calibration reference data:** RadCalNet ground-site measurements and GSICS inter-calibration corrections.
 - **Atmosphere:** AERONET aerosol optical depth and water vapour, CAMS reanalysis and forecast fields, Sentinel-3 OLCI water vapour and NGL GNSS tropospheric delay.
 

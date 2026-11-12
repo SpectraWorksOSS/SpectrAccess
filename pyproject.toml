@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "spectraccess"
 version = "0.7.0"
-description = "Python library to find and download Earth observation satellite imagery and cal/val reference data through one interface: Sentinel-2, Sentinel-3 SLSTR, Landsat 8 and 9, VIIRS, MTG FCI, MSG SEVIRI and NASA EMIT products, plus RadCalNet, GSICS, AERONET, CAMS, OLCI water vapour and GNSS data. Preserves provider data and metadata, with labelled provider-model evaluations in the experimental imagery API."
+description = "Python library to find and download Earth observation satellite imagery and cal/val reference data through one interface: Sentinel-2, Sentinel-3 SLSTR, Landsat 8 and 9, VIIRS, MTG FCI, MSG SEVIRI, Metop IASI and NASA EMIT products, plus RadCalNet, GSICS, AERONET, CAMS, OLCI water vapour and GNSS data. Preserves provider data and metadata, with labelled provider-model evaluations in the experimental imagery API."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "Apache-2.0" }
@@ -14,7 +14,7 @@ keywords = [
   "satellite data download", "calibration and validation", "cal/val",
   "radiometric calibration", "vicarious calibration", "satellite calibration",
   "Sentinel-2", "Sentinel-3", "SLSTR", "OLCI", "Landsat", "VIIRS", "MTG", "FCI",
-  "SEVIRI", "Meteosat", "EMIT", "hyperspectral", "Copernicus Data Space Ecosystem",
+  "SEVIRI", "Meteosat", "IASI", "Metop", "EMIT", "hyperspectral", "Copernicus Data Space Ecosystem",
   "NASA Earthdata", "EUMETSAT", "RadCalNet", "GSICS", "AERONET", "CAMS", "GNSS",
   "surface reflectance", "top-of-atmosphere reflectance", "aerosol optical depth",
   "water vapour", "measurement uncertainty", "pandas", "xarray",
